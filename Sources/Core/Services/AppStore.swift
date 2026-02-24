@@ -15,6 +15,7 @@ final class AppStore: ObservableObject {
     @Published var trips: [TripRecord] = []
     @Published var paymentMethods: [PaymentMethod] = []
     @Published var activeTripID: UUID?
+    @Published var defaultCurrencyCode: String = "USD"
 
     let networkMonitor: NetworkMonitor
     let audioCaptureService: AudioCaptureService
@@ -49,6 +50,7 @@ final class AppStore: ObservableObject {
         self.trips = persistedMeta.trips
         self.paymentMethods = persistedMeta.paymentMethods
         self.activeTripID = persistedMeta.activeTripID
+        self.defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
 
         resolvedNetworkMonitor.onStatusChange = { [weak self] connected in
             guard let self else { return }
@@ -65,6 +67,10 @@ final class AppStore: ObservableObject {
     var categories: [String] {
         categoryDefinitions.map(\.name)
     }
+
+    static let supportedCurrencyCodes = [
+        "USD", "MXN", "EUR", "GBP", "CAD", "JPY", "BRL", "COP", "ARS", "CLP", "PEN"
+    ]
 
     var activeTrip: TripRecord? {
         guard let activeTripID else { return nil }
@@ -181,6 +187,7 @@ final class AppStore: ObservableObject {
 
                 autoDetectPaymentMethodIfNeeded(&draft)
                 autoAssignCategoryIDIfNeeded(&draft)
+                autoAssignCurrencyIfNeeded(&draft)
                 autoAssignExpenseDateIfNeeded(&draft)
 
                 queuedCaptures[index].parsedDraft = draft
@@ -349,6 +356,14 @@ final class AppStore: ObservableObject {
         networkMonitor.setDebugConnectivity(isConnected)
     }
 
+    func setDefaultCurrencyCode(_ code: String) {
+        guard let normalized = Self.normalizedCurrencyCode(code) else { return }
+        guard defaultCurrencyCode != normalized else { return }
+        defaultCurrencyCode = normalized
+        persistMeta()
+        scheduleMetadataSync()
+    }
+
     func refreshCloudStateFromServer() async {
         await refreshMetadataFromServer()
         await refreshExpensesFromServer()
@@ -430,12 +445,11 @@ final class AppStore: ObservableObject {
         scheduleMetadataSync()
     }
 
-    func addPaymentMethod(name: String, type: PaymentMethodType, network: String? = nil, last4: String? = nil, aliases: [String] = []) {
+    func addPaymentMethod(name: String, network: String? = nil, last4: String? = nil, aliases: [String] = []) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let method = PaymentMethod(
             name: trimmed,
-            type: type,
             network: network?.nilIfBlank,
             last4: last4?.nilIfBlank,
             aliases: normalizeKeywords(aliases)
@@ -488,7 +502,10 @@ final class AppStore: ObservableObject {
         let totals = filtered.reduce(into: [String: Decimal]()) { partial, expense in
             partial[expense.category, default: .zero] += expense.amount
         }
-        return totals.sorted { $0.value > $1.value }
+        return totals.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+        }
     }
 
     var monthlySpendTotal: Decimal {
@@ -514,7 +531,7 @@ final class AppStore: ObservableObject {
 
         if let existingExpenseID, let idx = expenses.firstIndex(where: { $0.id == existingExpenseID }) {
             expenses[idx].amount = amount
-            expenses[idx].currency = draft.currency.uppercased()
+            expenses[idx].currency = Self.normalizedCurrencyCode(draft.currency) ?? defaultCurrencyCode
             expenses[idx].category = draft.category
             expenses[idx].categoryID = draft.categoryID
             expenses[idx].description = draft.description.isEmpty ? nil : draft.description
@@ -540,7 +557,7 @@ final class AppStore: ObservableObject {
             id: resolvedExpenseID,
             clientExpenseID: draft.clientExpenseID,
             amount: amount,
-            currency: draft.currency.uppercased(),
+            currency: Self.normalizedCurrencyCode(draft.currency) ?? defaultCurrencyCode,
             category: draft.category,
             categoryID: draft.categoryID,
             description: draft.description.isEmpty ? nil : draft.description,
@@ -630,6 +647,24 @@ final class AppStore: ObservableObject {
         draft.expenseDate = calendar.startOfDay(for: date)
     }
 
+    private func autoAssignCurrencyIfNeeded(_ draft: inout ExpenseDraft) {
+        let sourceText = [draft.rawText, draft.description, draft.merchant]
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let detected = Self.detectCurrencyCode(in: sourceText)
+
+        if let detected {
+            draft.currency = detected
+            return
+        }
+
+        if let normalized = Self.normalizedCurrencyCode(draft.currency) {
+            draft.currency = normalized
+        } else {
+            draft.currency = defaultCurrencyCode
+        }
+    }
+
     private func autoDetectPaymentMethodIfNeeded(_ draft: inout ExpenseDraft) {
         guard draft.paymentMethodID == nil else { return }
         guard !paymentMethods.isEmpty else { return }
@@ -660,7 +695,8 @@ final class AppStore: ObservableObject {
             categories: categoryDefinitions,
             trips: trips,
             paymentMethods: paymentMethods,
-            activeTripID: activeTripID
+            activeTripID: activeTripID,
+            defaultCurrencyCode: defaultCurrencyCode
         ))
     }
 
@@ -687,7 +723,8 @@ final class AppStore: ObservableObject {
             categories: categoryDefinitions,
             trips: trips,
             paymentMethods: paymentMethods,
-            activeTripID: activeTripID
+            activeTripID: activeTripID,
+            defaultCurrencyCode: defaultCurrencyCode
         )
         do {
             try await apiClient.syncMetadata(snapshot)
@@ -703,6 +740,9 @@ final class AppStore: ObservableObject {
             categoryDefinitions = mergeRemoteCategories(snapshot.categories)
             trips = snapshot.trips
             paymentMethods = snapshot.paymentMethods
+            if let remoteDefault = Self.normalizedCurrencyCode(snapshot.defaultCurrencyCode) {
+                defaultCurrencyCode = remoteDefault
+            }
             if let active = snapshot.activeTripID, trips.contains(where: { $0.id == active }) {
                 activeTripID = active
             } else if let current = activeTripID, !trips.contains(where: { $0.id == current }) {
@@ -830,6 +870,44 @@ final class AppStore: ObservableObject {
         }
         return false
     }
+
+    private static func normalizedCurrencyCode(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard supportedCurrencyCodes.contains(normalized) else { return nil }
+        return normalized
+    }
+
+    private static func detectCurrencyCode(in text: String) -> String? {
+        let lower = text.lowercased()
+        guard !lower.isEmpty else { return nil }
+
+        // More specific phrases first to avoid false positives.
+        if lower.contains("mexican peso") || lower.contains("mexican pesos") { return "MXN" }
+        if lower.range(of: #"\bmxn\b"#, options: .regularExpression) != nil { return "MXN" }
+        if lower.range(of: #"\bpeso\b|\bpesos\b"#, options: .regularExpression) != nil { return "MXN" }
+
+        if lower.range(of: #"\beur\b"#, options: .regularExpression) != nil || lower.contains("euro") || lower.contains("euros") || text.contains("€") {
+            return "EUR"
+        }
+        if lower.range(of: #"\bgbp\b"#, options: .regularExpression) != nil || lower.contains("pound") || lower.contains("pounds") || text.contains("£") {
+            return "GBP"
+        }
+        if lower.range(of: #"\bjpy\b"#, options: .regularExpression) != nil || lower.contains("yen") || text.contains("¥") {
+            return "JPY"
+        }
+        if lower.range(of: #"\bbrl\b"#, options: .regularExpression) != nil || lower.contains("real") || lower.contains("reais") {
+            return "BRL"
+        }
+        if lower.range(of: #"\bcad\b"#, options: .regularExpression) != nil || lower.contains("canadian dollar") {
+            return "CAD"
+        }
+        if lower.range(of: #"\busd\b"#, options: .regularExpression) != nil || lower.contains("dollar") || lower.contains("dollars") || text.contains("$") {
+            return "USD"
+        }
+
+        return nil
+    }
 }
 
 private extension AppStore {
@@ -908,6 +986,7 @@ private final class LocalMetaStore {
         var trips: [TripRecord]
         var paymentMethods: [PaymentMethod]
         var activeTripID: UUID?
+        var defaultCurrencyCode: String?
     }
 
     private let key = "speakance.local-meta.v1"
@@ -927,7 +1006,7 @@ private final class LocalMetaStore {
     func load() -> Payload {
         guard let data = UserDefaults.standard.data(forKey: key),
               let payload = try? decoder.decode(Payload.self, from: data) else {
-            return Payload(categories: [], trips: [], paymentMethods: [], activeTripID: nil)
+            return Payload(categories: [], trips: [], paymentMethods: [], activeTripID: nil, defaultCurrencyCode: nil)
         }
         return payload
     }

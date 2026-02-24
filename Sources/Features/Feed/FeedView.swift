@@ -3,8 +3,10 @@ import SwiftUI
 struct FeedView: View {
     @EnvironmentObject private var store: AppStore
     @State private var selectedMode: FeedMode = .saved
+    @State private var selectedTripFilter: SavedTripFilter = .all
     @State private var selectedCardFilter: SavedCardFilter = .all
-    @State private var selectedMonthFilter: SavedMonthFilter = .all
+    @State private var selectedMonthFilter: SavedMonthFilter = .currentMonth
+    @State private var savedLayout: SavedExpenseLayout = .cards
 
     var body: some View {
         GeometryReader { proxy in
@@ -33,7 +35,7 @@ struct FeedView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, max(18, proxy.safeAreaInsets.top + 12))
+                    .padding(.top, 10)
                     .padding(.bottom, 28)
                 }
                 .background(AppCanvasBackground())
@@ -106,27 +108,58 @@ struct FeedView: View {
     }
 
     private var savedFiltersBar: some View {
-        HStack(spacing: 10) {
-            Menu {
-                Button("All Cards") { selectedCardFilter = .all }
-                Button("Unassigned") { selectedCardFilter = .unassigned }
-                ForEach(store.activePaymentMethodOptions) { method in
-                    Button(method.name) { selectedCardFilter = .method(method.id) }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                Menu {
+                    Button("All Trips") { selectedTripFilter = .all }
+                    Button("No Trip") { selectedTripFilter = .noTrip }
+                    ForEach(store.activeTripFilterOptions) { trip in
+                        Button(trip.name) { selectedTripFilter = .trip(trip.id) }
+                    }
+                } label: {
+                    filterChip(title: "Trip", value: selectedTripFilterTitle)
                 }
-            } label: {
-                filterChip(title: "Card", value: selectedCardFilterTitle)
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            Menu {
-                Button("All Months") { selectedMonthFilter = .all }
-                ForEach(availableMonthFilters, id: \.self) { month in
-                    Button(month.title) { selectedMonthFilter = month }
+                Menu {
+                    Button("All Cards") { selectedCardFilter = .all }
+                    Button("Unassigned") { selectedCardFilter = .unassigned }
+                    ForEach(store.activePaymentMethodOptions) { method in
+                        Button(method.name) { selectedCardFilter = .method(method.id) }
+                    }
+                } label: {
+                    filterChip(title: "Card", value: selectedCardFilterTitle)
                 }
-            } label: {
-                filterChip(title: "Month", value: selectedMonthFilter.title)
+                .buttonStyle(.plain)
+
+                Menu {
+                    Button("All Months") { selectedMonthFilter = .all }
+                    ForEach(availableMonthFilters, id: \.self) { month in
+                        Button(month.title) { selectedMonthFilter = month }
+                    }
+                } label: {
+                    filterChip(title: "Month", value: selectedMonthFilter.title)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    savedLayout = savedLayout == .cards ? .compact : .cards
+                } label: {
+                    Image(systemName: savedLayout == .cards ? "rectangle.grid.1x2" : "list.bullet")
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: 22, height: 18)
+                    .foregroundStyle(AppTheme.ink)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(AppTheme.cardStrong, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(savedLayout == .cards ? "Switch to compact list view" : "Switch to card view")
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -175,7 +208,7 @@ struct FeedView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(
                 title: "Saved Expenses",
-                subtitle: "Tap any expense to edit",
+                subtitle: savedLayout == .cards ? "Tap any expense to edit" : "Compact list view",
                 trailing: "\(filteredSavedExpenses.count)"
             )
 
@@ -192,7 +225,11 @@ struct FeedView: View {
                         onTap: { store.openReview(for: expense) },
                         onDelete: { store.deleteExpense(expense) }
                     ) {
-                        expenseRow(expense)
+                        if savedLayout == .cards {
+                            expenseRow(expense)
+                        } else {
+                            compactExpenseRow(expense)
+                        }
                     }
                 }
             }
@@ -300,6 +337,57 @@ struct FeedView: View {
         }
     }
 
+    @ViewBuilder
+    private func compactExpenseRow(_ expense: ExpenseRecord) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(AppTheme.categoryColor(expense.category))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(expense.category)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(AppTheme.ink)
+                        .lineLimit(1)
+                    Text("•")
+                        .foregroundStyle(AppTheme.faintText)
+                    Text(expense.expenseDate.formatted(date: .abbreviated, time: .omitted))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                        .lineLimit(1)
+                }
+
+                Text(expense.description ?? "No description")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(AppTheme.muted)
+                    .lineLimit(1)
+
+                if let method = expense.paymentMethodName {
+                    Text(method)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Text(CurrencyFormatter.string(expense.amount, currency: expense.currency))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(AppTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.12), lineWidth: 1)
+        )
+    }
+
     private func icon(for category: String) -> String {
         switch category {
         case "Food": return "fork.knife"
@@ -332,7 +420,18 @@ struct FeedView: View {
 
     private var filteredSavedExpenses: [ExpenseRecord] {
         store.expenses.filter { expense in
-            matchesCardFilter(expense) && matchesMonthFilter(expense)
+            matchesTripFilter(expense) && matchesCardFilter(expense) && matchesMonthFilter(expense)
+        }
+    }
+
+    private func matchesTripFilter(_ expense: ExpenseRecord) -> Bool {
+        switch selectedTripFilter {
+        case .all:
+            return true
+        case .noTrip:
+            return expense.tripID == nil
+        case let .trip(id):
+            return expense.tripID == id
         }
     }
 
@@ -377,6 +476,17 @@ struct FeedView: View {
             return store.paymentMethods.first(where: { $0.id == id })?.name ?? "Unknown"
         }
     }
+
+    private var selectedTripFilterTitle: String {
+        switch selectedTripFilter {
+        case .all:
+            return "All Trips"
+        case .noTrip:
+            return "No Trip"
+        case let .trip(id):
+            return store.trips.first(where: { $0.id == id })?.name ?? "Unknown"
+        }
+    }
 }
 
 private enum FeedMode: CaseIterable {
@@ -397,9 +507,20 @@ private enum SavedCardFilter: Hashable {
     case method(UUID)
 }
 
+private enum SavedTripFilter: Hashable {
+    case all
+    case noTrip
+    case trip(UUID)
+}
+
 private enum SavedMonthFilter: Hashable {
     case all
     case month(year: Int, month: Int)
+
+    static var currentMonth: SavedMonthFilter {
+        let comps = Calendar.current.dateComponents([.year, .month], from: .now)
+        return .month(year: comps.year ?? 0, month: comps.month ?? 1)
+    }
 
     var title: String {
         switch self {
@@ -423,6 +544,11 @@ private enum SavedMonthFilter: Hashable {
             return year * 100 + month
         }
     }
+}
+
+private enum SavedExpenseLayout {
+    case cards
+    case compact
 }
 
 private struct QueueBadge: View {

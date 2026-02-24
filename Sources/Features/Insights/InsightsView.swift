@@ -4,6 +4,8 @@ struct InsightsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var selectedTripID: UUID?
     @State private var selectedPaymentMethodID: UUID?
+    @State private var selectedMonthFilter: InsightsMonthFilter = .currentMonth
+    @State private var selectedTrendYear: Int = Calendar.current.component(.year, from: .now)
 
     var body: some View {
         GeometryReader { proxy in
@@ -11,12 +13,12 @@ struct InsightsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     headerCard
                     filtersCard
-                    donutCard
                     summaryRow
-                    categoryBreakdownCard
+                    donutCard
+                    yearlyCategoryTrendCard
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, max(10, proxy.safeAreaInsets.top + 6))
+                .padding(.top, 10)
                 .padding(.bottom, max(28, proxy.safeAreaInsets.bottom + 8))
             }
             .background(AppCanvasBackground())
@@ -25,12 +27,30 @@ struct InsightsView: View {
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    private var scopedExpenses: [ExpenseRecord] {
+    private var baseFilteredExpenses: [ExpenseRecord] {
         store.filteredExpenses(tripID: selectedTripID, paymentMethodID: selectedPaymentMethodID)
     }
 
+    private var scopedExpenses: [ExpenseRecord] {
+        baseFilteredExpenses.filter { expense in
+            switch selectedMonthFilter {
+            case .all:
+                return true
+            case let .month(year, month):
+                let comps = Calendar.current.dateComponents([.year, .month], from: expense.expenseDate)
+                return comps.year == year && comps.month == month
+            }
+        }
+    }
+
     private var scopedCategoryTotals: [(String, Decimal)] {
-        store.categoryTotals(tripID: selectedTripID, paymentMethodID: selectedPaymentMethodID)
+        let totals = scopedExpenses.reduce(into: [String: Decimal]()) { partial, expense in
+            partial[expense.category, default: .zero] += expense.amount
+        }
+        return totals.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+        }
     }
 
     private var scopedTotal: Decimal {
@@ -110,54 +130,63 @@ struct InsightsView: View {
     }
 
     private var filtersCard: some View {
-        SpeakCard(padding: 16, cornerRadius: 22) {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "Filters", subtitle: "Trip and payment method")
-
-                Menu {
-                    Button("All Trips") { selectedTripID = nil }
-                    ForEach(store.activeTripFilterOptions) { trip in
-                        Button(trip.name) { selectedTripID = trip.id }
+        SpeakCard(padding: 12, cornerRadius: 20) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    Menu {
+                        Button("All Trips") { selectedTripID = nil }
+                        ForEach(store.activeTripFilterOptions) { trip in
+                            Button(trip.name) { selectedTripID = trip.id }
+                        }
+                    } label: {
+                        compactFilterChip(title: "Trip", value: selectedTripName)
                     }
-                } label: {
-                    filterRow(title: "Trip", value: selectedTripName)
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                Menu {
-                    Button("All Payment Methods") { selectedPaymentMethodID = nil }
-                    ForEach(store.activePaymentMethodOptions) { method in
-                        Button(method.name) { selectedPaymentMethodID = method.id }
+                    Menu {
+                        Button("All Cards") { selectedPaymentMethodID = nil }
+                        ForEach(store.activePaymentMethodOptions) { method in
+                            Button(method.name) { selectedPaymentMethodID = method.id }
+                        }
+                    } label: {
+                        compactFilterChip(title: "Card", value: selectedPaymentName == "All Payment Methods" ? "All Cards" : selectedPaymentName)
                     }
-                } label: {
-                    filterRow(title: "Payment Method", value: selectedPaymentName)
+                    .buttonStyle(.plain)
+
+                    Menu {
+                        Button("All Months") { selectedMonthFilter = .all }
+                        ForEach(availableMonthFilters, id: \.self) { month in
+                            Button(month.title) { selectedMonthFilter = month }
+                        }
+                    } label: {
+                        compactFilterChip(title: "Month", value: selectedMonthFilter.title)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
 
-    private func filterRow(title: String, value: String) -> some View {
-        HStack {
+    private func compactFilterChip(title: String, value: String) -> some View {
+        HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(AppTheme.ink)
-            Spacer()
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(AppTheme.faintText)
             Text(value)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(AppTheme.muted)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.caption)
+                .foregroundStyle(AppTheme.ink)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(AppTheme.faintText)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(AppTheme.cardStrong)
+        .padding(.vertical, 9)
+        .background(AppTheme.cardStrong, in: Capsule())
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            Capsule()
                 .stroke(Color(uiColor: .separator).opacity(0.16), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var donutCard: some View {
@@ -288,17 +317,26 @@ struct InsightsView: View {
         )
     }
 
-    private var categoryBreakdownCard: some View {
+    private var yearlyCategoryTrendCard: some View {
         SpeakCard(padding: 16, cornerRadius: 22, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .center, spacing: 12) {
-                        Text("Category Breakdown")
+                        Text("Monthly Categories")
                             .font(.title3.weight(.bold))
                             .foregroundStyle(AppTheme.ink)
                         Spacer()
-                        Text("\(scopedCategoryTotals.count) categories")
-                            .font(.caption.weight(.semibold))
+                        Menu {
+                            ForEach(availableTrendYears, id: \.self) { year in
+                                Button("\(year)") { selectedTrendYear = year }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(verbatim: String(selectedTrendYear))
+                                    .font(.caption.weight(.semibold))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
                             .foregroundStyle(AppTheme.muted)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
@@ -307,69 +345,48 @@ struct InsightsView: View {
                                 Capsule()
                                     .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
                             )
+                        }
+                        .buttonStyle(.plain)
                     }
 
-                    Text("Ranked by spend")
+                    Text("Stacked monthly spend by category (\(String(selectedTrendYear)))")
                         .font(.caption)
                         .foregroundStyle(AppTheme.faintText)
                 }
 
-                if scopedCategoryTotals.isEmpty {
-                    Text("No expenses yet for this filter.")
+                MonthlyCategoryStackedChartView(months: trendChartMonths)
+                    .frame(height: 240)
+
+                if trendLegendCategories.isEmpty {
+                    Text("No expenses for this year under the current trip/card filters.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
                 } else {
-                    ForEach(Array(scopedCategoryTotals.enumerated()), id: \.element.0) { index, row in
-                        categoryRow(index: index + 1, category: row.0, total: row.1)
-                        if index < scopedCategoryTotals.count - 1 {
-                            Divider().opacity(0.4)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(trendLegendCategories, id: \.self) { category in
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(AppTheme.categoryColor(category))
+                                        .frame(width: 8, height: 8)
+                                    Text(category)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(AppTheme.ink)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(AppTheme.cardStrong, in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(Color(uiColor: .separator).opacity(0.14), lineWidth: 1)
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    private func categoryRow(index: Int, category: String, total: Decimal) -> some View {
-        let ratio = percentage(for: total)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text("\(index)")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(AppTheme.muted)
-                    .frame(width: 18, alignment: .leading)
-
-                CategoryDot(category: category)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(category)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.ink)
-                    Text("\(Int((ratio * 100).rounded()))% of spend")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.faintText)
-                }
-                Spacer()
-                Text(insightsCurrencyString(total))
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(AppTheme.ink)
-            }
-
-            GeometryReader { proxy in
-                let width = proxy.size.width.isFinite ? proxy.size.width : 0
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color(uiColor: .systemGray5))
-                    Capsule()
-                        .fill(AppTheme.categoryColor(category))
-                        .frame(width: max(8, width * ratio))
-                }
-            }
-            .frame(height: 8)
-        }
-        .padding(.vertical, 2)
     }
 
     private var selectedTripName: String {
@@ -386,6 +403,67 @@ struct InsightsView: View {
         return "All Payment Methods"
     }
 
+    private var availableMonthFilters: [InsightsMonthFilter] {
+        let calendar = Calendar.current
+        let unique = Set(baseFilteredExpenses.compactMap { expense -> InsightsMonthFilter? in
+            let comps = calendar.dateComponents([.year, .month], from: expense.expenseDate)
+            guard let year = comps.year, let month = comps.month else { return nil }
+            return .month(year: year, month: month)
+        })
+        return unique.sorted(by: { $0.sortKey > $1.sortKey })
+    }
+
+    private var availableTrendYears: [Int] {
+        let currentYear = Calendar.current.component(.year, from: .now)
+        let years = Set(baseFilteredExpenses.compactMap { Calendar.current.dateComponents([.year], from: $0.expenseDate).year })
+            .union([currentYear])
+        return years.sorted(by: >)
+    }
+
+    private var trendYearExpenses: [ExpenseRecord] {
+        baseFilteredExpenses.filter {
+            Calendar.current.component(.year, from: $0.expenseDate) == selectedTrendYear
+        }
+    }
+
+    private var trendLegendCategories: [String] {
+        let totals = trendYearExpenses.reduce(into: [String: Decimal]()) { partial, expense in
+            partial[expense.category, default: .zero] += expense.amount
+        }
+        return totals
+            .sorted { lhs, rhs in
+                if lhs.value != rhs.value { return lhs.value > rhs.value }
+                return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+            }
+            .map(\.key)
+    }
+
+    private var trendChartMonths: [MonthlyCategoryStack] {
+        let calendar = Calendar.current
+        let monthCategoryTotals = trendYearExpenses.reduce(into: [Int: [String: Decimal]]()) { partial, expense in
+            let month = calendar.component(.month, from: expense.expenseDate)
+            var bucket = partial[month] ?? [:]
+            bucket[expense.category, default: .zero] += expense.amount
+            partial[month] = bucket
+        }
+
+        let categoryOrder = trendLegendCategories
+
+        return (1...12).map { month in
+            let categoryMap = monthCategoryTotals[month] ?? [:]
+            let segments = categoryOrder.compactMap { category -> MonthlyCategoryStackSegment? in
+                guard let amount = categoryMap[category], amount > 0 else { return nil }
+                return MonthlyCategoryStackSegment(
+                    category: category,
+                    amount: amount,
+                    color: AppTheme.categoryColor(category)
+                )
+            }
+            let total = segments.reduce(Decimal.zero) { $0 + $1.amount }
+            return MonthlyCategoryStack(month: month, total: total, segments: segments)
+        }
+    }
+
     private var pendingQueueCount: Int {
         store.queuedCaptures.filter { $0.status == .pending || $0.status == .syncing }.count
     }
@@ -400,15 +478,6 @@ struct InsightsView: View {
         return Decimal(total / Double(divisor))
     }
 
-    private func percentage(for total: Decimal) -> CGFloat {
-        let scopeTotal = NSDecimalNumber(decimal: scopedTotal).doubleValue
-        guard scopeTotal > 0 else { return 0 }
-        let value = NSDecimalNumber(decimal: total).doubleValue
-        let ratio = value / scopeTotal
-        if !ratio.isFinite { return 0 }
-        return CGFloat(min(max(ratio, 0), 1))
-    }
-
     private func insightsCurrencyString(_ amount: Decimal) -> String {
         let roundedDouble = NSDecimalNumber(decimal: amount).doubleValue.rounded()
         return CurrencyFormatter.string(
@@ -416,6 +485,124 @@ struct InsightsView: View {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         )
+    }
+}
+
+private enum InsightsMonthFilter: Hashable {
+    case all
+    case month(year: Int, month: Int)
+
+    static var currentMonth: InsightsMonthFilter {
+        let comps = Calendar.current.dateComponents([.year, .month], from: .now)
+        return .month(year: comps.year ?? 0, month: comps.month ?? 1)
+    }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All Months"
+        case let .month(year, month):
+            var comps = DateComponents()
+            comps.year = year
+            comps.month = month
+            comps.day = 1
+            let date = Calendar.current.date(from: comps) ?? .now
+            return date.formatted(.dateTime.month(.abbreviated).year())
+        }
+    }
+
+    var sortKey: Int {
+        switch self {
+        case .all:
+            return Int.min
+        case let .month(year, month):
+            return year * 100 + month
+        }
+    }
+}
+
+private struct MonthlyCategoryStack: Identifiable {
+    let month: Int
+    let total: Decimal
+    let segments: [MonthlyCategoryStackSegment]
+
+    var id: Int { month }
+}
+
+private struct MonthlyCategoryStackSegment: Identifiable {
+    let id = UUID()
+    let category: String
+    let amount: Decimal
+    let color: Color
+}
+
+private struct MonthlyCategoryStackedChartView: View {
+    let months: [MonthlyCategoryStack]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ForEach(months) { month in
+                    monthBar(month)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            HStack(spacing: 10) {
+                ForEach(months) { month in
+                    Text(monthLabel(month.month))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppTheme.faintText)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func monthBar(_ month: MonthlyCategoryStack) -> some View {
+        let maxTotal = max(
+            1,
+            months.map { NSDecimalNumber(decimal: $0.total).doubleValue }.max() ?? 1
+        )
+        let monthTotal = NSDecimalNumber(decimal: month.total).doubleValue
+
+        GeometryReader { proxy in
+            let height = max(1, proxy.size.height)
+            let barHeight = CGFloat(monthTotal / maxTotal) * height
+
+            ZStack(alignment: .bottom) {
+                if monthTotal > 0 {
+                    VStack(spacing: 0) {
+                        ForEach(month.segments.reversed()) { segment in
+                            let amount = NSDecimalNumber(decimal: segment.amount).doubleValue
+                            Rectangle()
+                                .fill(segment.color)
+                                .frame(height: max(2, barHeight * CGFloat(amount / monthTotal)))
+                        }
+                    }
+                    .frame(height: barHeight, alignment: .bottom)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.clear)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.black.opacity(0.03), lineWidth: 0.5)
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 190)
+    }
+
+    private func monthLabel(_ month: Int) -> String {
+        let symbols = Calendar.current.veryShortMonthSymbols
+        guard month >= 1, month <= symbols.count else { return "-" }
+        return symbols[month - 1]
     }
 }
 

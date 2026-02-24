@@ -39,6 +39,7 @@ struct UserMetadataSyncSnapshotDTO {
     var trips: [TripRecord]
     var paymentMethods: [PaymentMethod]
     var activeTripID: UUID?
+    var defaultCurrencyCode: String?
 }
 
 struct MockExpenseAPIClient: ExpenseAPIClientProtocol {
@@ -61,7 +62,7 @@ struct MockExpenseAPIClient: ExpenseAPIClientProtocol {
         case let s where s.contains("amazon") || s.contains("shopping"):
             category = "Shopping"
         case let s where s.contains("rent") || s.contains("bill"):
-            category = "Bills"
+            category = "Utilities"
         default:
             category = "Other"
         }

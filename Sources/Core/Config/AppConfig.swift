@@ -30,12 +30,8 @@ enum AppBootstrap {
 
     @MainActor
     static func makeBundle() -> Bundle {
-        let mock = MockExpenseAPIClient()
         guard let config = SupabaseAppConfig.loadFromBundle() else {
-            return Bundle(
-                appStore: AppStore(apiClient: mock),
-                authStore: AuthStore(client: nil, tokenStore: SharedAccessTokenStore())
-            )
+            preconditionFailure("Missing Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY in Info.plist before running a production build.")
         }
 
         let tokenStore = SharedAccessTokenStore()

@@ -10,17 +10,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
             throw ExpenseAPIError.missingAuthSession
         }
-        #if DEBUG
-        if let payload = jwtPayload(from: accessToken) {
-            let iss = payload["iss"] as? String ?? "?"
-            let role = payload["role"] as? String ?? "?"
-            let aud = payload["aud"] as? String ?? "?"
-            print("[Speakance] parse-expense auth token iss=\(iss) role=\(role) aud=\(aud)")
-        } else {
-            print("[Speakance] parse-expense auth token payload decode failed")
-        }
-        #endif
-
         let url = try makeFunctionsURL()
 
         var urlRequest = URLRequest(url: url)
@@ -50,10 +39,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         do {
             apiResponse = try decoder.decode(SupabaseParseExpenseResponsePayload.self, from: data)
         } catch {
-            let raw = String(data: data, encoding: .utf8) ?? "<non-utf8>"
-            #if DEBUG
-            print("[Speakance] parse-expense decode failure http=\((response as? HTTPURLResponse)?.statusCode ?? -1) body=\(raw)")
-            #endif
             throw ExpenseAPIError.server("Unexpected server response. \(error.localizedDescription)")
         }
 
@@ -66,10 +51,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
                 : request.rawText)
                 ?? ""
             if parsed == nil || apiResponse.parse?.confidence == nil || apiResponse.parse?.rawText == nil {
-                #if DEBUG
-                let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
-                print("[Speakance] parse-expense partial parse payload fallback http=200 body=\(body)")
-                #endif
             }
             guard let expense = apiResponse.expense else {
                 throw ExpenseAPIError.server("Missing expense payload")
@@ -110,10 +91,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             )
 
         case 401:
-            #if DEBUG
-            let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
-            print("[Speakance] parse-expense unauthorized http=401 body=\(body)")
-            #endif
             throw ExpenseAPIError.unauthorized
         case 429:
             throw ExpenseAPIError.limitExceeded(apiResponse.error ?? "Daily voice limit reached")
@@ -179,6 +156,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             throw ExpenseAPIError.missingAuthSession
         }
 
+        try await syncProfilePreferences(snapshot, accessToken: accessToken)
         let remoteSnapshot = try await fetchMetadataInternal(accessToken: accessToken)
         try await syncCategories(snapshot.categories, remote: remoteSnapshot.categories, accessToken: accessToken)
         try await syncTrips(snapshot.trips, remote: remoteSnapshot.trips, accessToken: accessToken)
@@ -263,9 +241,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             // Recover old/stale voice queue items by falling back to the stored text transcript/placeholder.
             if !request.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                #if DEBUG
-                print("[Speakance] voice upload skipped because local file is missing; using raw_text fallback clientExpenseID=\(request.clientExpenseID.uuidString)")
-                #endif
                 return nil
             }
             throw ExpenseAPIError.server("Recorded audio file is missing.")
@@ -291,10 +266,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         uploadRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         uploadRequest.setValue(contentType(for: fileURL), forHTTPHeaderField: "Content-Type")
         uploadRequest.setValue("true", forHTTPHeaderField: "x-upsert")
-        #if DEBUG
-        print("[Speakance] voice upload bytes=\(data.count) path=\(fileURL.lastPathComponent)")
-        #endif
-
         let (responseData, response) = try await session.upload(for: uploadRequest, from: data)
         guard let http = response as? HTTPURLResponse else {
             throw ExpenseAPIError.invalidResponse
@@ -416,17 +387,36 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     private func fetchMetadataInternal(accessToken: String) async throws -> UserMetadataSyncSnapshotDTO {
+        async let profileTask = fetchProfile(accessToken: accessToken)
         async let categoriesTask = fetchCategories(accessToken: accessToken)
         async let tripsTask = fetchTrips(accessToken: accessToken)
         async let paymentMethodsTask = fetchPaymentMethods(accessToken: accessToken)
-        let (categories, trips, paymentMethods) = try await (categoriesTask, tripsTask, paymentMethodsTask)
+        let (profile, categories, trips, paymentMethods) = try await (profileTask, categoriesTask, tripsTask, paymentMethodsTask)
         let activeTripID = trips.first(where: { $0.status == .active })?.id
         return UserMetadataSyncSnapshotDTO(
             categories: categories,
             trips: trips,
             paymentMethods: paymentMethods,
-            activeTripID: activeTripID
+            activeTripID: activeTripID,
+            defaultCurrencyCode: profile?.defaultCurrency
         )
+    }
+
+    private func fetchProfile(accessToken: String) async throws -> RESTProfile? {
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        let decoder = makeSupabaseDecoder()
+        var request = makeJSONRequest(
+            url: try makeRestURL(path: "profiles", queryItems: [
+                URLQueryItem(name: "select", value: "id,default_currency"),
+                URLQueryItem(name: "id", value: "eq.\(userID)"),
+                URLQueryItem(name: "limit", value: "1"),
+            ]),
+            accessToken: accessToken
+        )
+        request.httpMethod = "GET"
+        let (data, response) = try await session.data(for: request)
+        try validateREST(response: response, data: data)
+        return try decoder.decode([RESTProfile].self, from: data).first
     }
 
     private func fetchCategories(accessToken: String) async throws -> [CategoryDefinition] {
@@ -515,7 +505,6 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             return PaymentMethod(
                 id: id,
                 name: row.name,
-                type: PaymentMethodType(rawValue: row.methodType) ?? .other,
                 network: row.network,
                 last4: row.last4,
                 aliases: (aliasesByMethod[row.id] ?? []).map(\.phrase).sorted(),
@@ -665,6 +654,23 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         insertReq.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
         insertReq.httpBody = try JSONEncoder().encode(aliasRows)
         let (data, response) = try await session.data(for: insertReq)
+        try validateREST(response: response, data: data)
+    }
+
+    private func syncProfilePreferences(_ snapshot: UserMetadataSyncSnapshotDTO, accessToken: String) async throws {
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        let currency = (snapshot.defaultCurrencyCode ?? "USD")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+
+        var upsertReq = makeJSONRequest(
+            url: try makeRestURL(path: "profiles", queryItems: [URLQueryItem(name: "on_conflict", value: "id")]),
+            accessToken: accessToken
+        )
+        upsertReq.httpMethod = "POST"
+        upsertReq.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        upsertReq.httpBody = try JSONEncoder().encode([RESTProfileUpsert(id: userID, defaultCurrency: currency)])
+        let (data, response) = try await session.data(for: upsertReq)
         try validateREST(response: response, data: data)
     }
 
@@ -962,6 +968,26 @@ private struct RESTCategory: Decodable {
     }
 }
 
+private struct RESTProfile: Decodable {
+    let id: String
+    let defaultCurrency: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case defaultCurrency = "default_currency"
+    }
+}
+
+private struct RESTProfileUpsert: Encodable {
+    let id: String
+    let defaultCurrency: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case defaultCurrency = "default_currency"
+    }
+}
+
 private struct RESTExpense: Decodable {
     let id: String
     let clientExpenseID: String
@@ -1090,7 +1116,6 @@ private struct RESTTrip: Decodable {
 private struct RESTPaymentMethod: Decodable {
     let id: String
     let name: String
-    let methodType: String
     let network: String?
     let last4: String?
     let isDefault: Bool
@@ -1099,7 +1124,6 @@ private struct RESTPaymentMethod: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, network, last4
-        case methodType = "method_type"
         case isDefault = "is_default"
         case isActive = "is_active"
         case createdAt = "created_at"
@@ -1203,7 +1227,7 @@ private struct RESTPaymentMethodUpsert: Encodable {
         id = method.id.uuidString
         self.userID = userID
         name = method.name
-        methodType = method.type.rawValue
+        methodType = "other"
         network = method.network
         last4 = method.last4
         isDefault = method.isDefault

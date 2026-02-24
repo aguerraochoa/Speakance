@@ -74,9 +74,21 @@ struct ExpenseReviewView: View {
                         Text("Currency")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(AppTheme.faintText)
-                        TextField("Currency", text: $context.draft.currency)
-                            .textInputAutocapitalization(.characters)
-                            .modernField()
+                        Menu {
+                            ForEach(AppStore.supportedCurrencyCodes, id: \.self) { code in
+                                Button(code) { context.draft.currency = code }
+                            }
+                        } label: {
+                            HStack {
+                                Text((AppStore.supportedCurrencyCodes.contains(context.draft.currency.uppercased()) ? context.draft.currency.uppercased() : store.defaultCurrencyCode))
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(AppTheme.ink)
+                            .modernFieldContainer()
+                        }
+                        .buttonStyle(.plain)
                     }
                     .frame(width: 110)
                 }

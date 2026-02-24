@@ -1,28 +1,30 @@
-# Speakance iOS App (SwiftUI Skeleton)
+# Speakance (Project Codename Folder: TalkSpend)
 
-This folder contains a SwiftUI v1 foundation with:
+Speakance is an iOS-first, voice-first personal finance app for frictionless expense tracking.
 
-- Core tab navigation
-- Voice-first capture screen (mocked capture flow)
-- Review/edit sheet
-- Expense feed
-- Insights
-- Settings
-- Offline queue state model + mock sync behavior
+## V1 Focus
 
-## Generate Xcode Project
+- iOS app in SwiftUI
+- Voice capture + text fallback
+- AI parsing to structured expenses
+- Offline capture queue with sync on reconnect
+- Supabase backend + Edge Functions
 
-This repo uses an `XcodeGen` spec to avoid hand-editing `.xcodeproj` files.
+## Repo Structure
 
-1. Install XcodeGen (example: `brew install xcodegen`)
-2. From this folder, run `xcodegen generate`
-3. Open `Speakance.xcodeproj` in Xcode
+- `docs/` product + architecture + API specs
+- `ios/Speakance/` SwiftUI app skeleton (XcodeGen project spec + source files)
+- `supabase/` schema migration + Edge Function skeleton
 
-## What Is Mocked Right Now
+## Start Here
 
-- Audio recording service (UI state only)
-- Network monitor (manual toggle in Settings)
-- Backend API parsing/saving (mock client)
+1. Read `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/docs/v1-spec.md`
+2. Read `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/docs/setup-checklist.md`
+3. Generate the iOS project from `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/ios/Speakance/project.yml` (with XcodeGen)
+4. Create a Supabase project and apply `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/supabase/migrations/20260222_000001_init.sql`
 
-The code is structured so you can replace the mocks with real Supabase/OpenAI integrations.
+## Naming
+
+- Public app name: **Speakance**
+- Current local folder name: `TalkSpend` (fine as a codename)
 

@@ -22,6 +22,12 @@
 	<string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cmFtbmNnZ2VlY2lmbnR3bG9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4MDYzNTAsImV4cCI6MjA4NzM4MjM1MH0.Zd185VRjDEJUYD1CltQywVZKp0hMVL5sQ0O57aJuCXY</string>
 	<key>SUPABASE_URL</key>
 	<string>https://pyramncggeecifntwlop.supabase.co</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Speakance uses the microphone to record voice expenses.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Speakance uses speech recognition to transcribe your recorded expenses.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

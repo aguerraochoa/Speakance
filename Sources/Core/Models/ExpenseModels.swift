@@ -19,26 +19,6 @@ enum QueueStatus: String, Codable, CaseIterable, Sendable {
     case failed
 }
 
-enum PaymentMethodType: String, Codable, CaseIterable, Sendable {
-    case creditCard = "credit_card"
-    case debitCard = "debit_card"
-    case cash
-    case applePay = "apple_pay"
-    case bankTransfer = "bank_transfer"
-    case other
-
-    var title: String {
-        switch self {
-        case .creditCard: return "Credit"
-        case .debitCard: return "Debit"
-        case .cash: return "Cash"
-        case .applePay: return "Apple Pay"
-        case .bankTransfer: return "Bank"
-        case .other: return "Other"
-        }
-    }
-}
-
 struct CategoryDefinition: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String
@@ -104,7 +84,6 @@ struct TripRecord: Identifiable, Codable, Equatable, Sendable {
 struct PaymentMethod: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     var name: String
-    var type: PaymentMethodType
     var network: String?
     var last4: String?
     var aliases: [String]
@@ -115,7 +94,6 @@ struct PaymentMethod: Identifiable, Codable, Equatable, Sendable {
     init(
         id: UUID = UUID(),
         name: String,
-        type: PaymentMethodType,
         network: String? = nil,
         last4: String? = nil,
         aliases: [String] = [],
@@ -125,7 +103,6 @@ struct PaymentMethod: Identifiable, Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.name = name
-        self.type = type
         self.network = network
         self.last4 = last4
         self.aliases = aliases

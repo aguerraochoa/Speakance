@@ -8,6 +8,7 @@ final class AuthStore: ObservableObject {
         case loading
         case signedIn(UserSession)
         case pendingEmailVerification(String)
+        case passwordResetEmailSent(String)
         case error(String)
     }
 
@@ -157,6 +158,26 @@ final class AuthStore: ObservableObject {
         }
         clearSessionLocally()
         state = .signedOut
+    }
+
+    func sendPasswordReset() async {
+        guard let client else { return }
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !email.isEmpty else {
+            state = .error("Enter your email first so we can send a reset link.")
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+        state = .loading
+
+        do {
+            try await client.sendPasswordReset(email: email)
+            state = .passwordResetEmailSent(email)
+        } catch {
+            state = .error(error.localizedDescription)
+        }
     }
 
     func dismissErrorIfNeeded() {
@@ -347,6 +368,16 @@ struct SupabaseAuthRESTClient {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw AuthError.requestFailed("Failed to sign out.")
         }
+    }
+
+    func sendPasswordReset(email: String) async throws {
+        let url = try authURL(path: "recover")
+        var request = makeJSONRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(["email": email])
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTP(response: response, data: data)
     }
 
     func refreshSession(refreshToken: String) async throws -> UserSession {

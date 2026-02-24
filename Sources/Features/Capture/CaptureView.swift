@@ -159,31 +159,33 @@ struct CaptureView: View {
                     .foregroundStyle(AppTheme.muted)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.bottom, isRecordInteractionActive ? 10 : 4)
+                    .frame(height: 28)
+                    .padding(.bottom, 10)
 
-                if isRecordInteractionActive {
-                    Button {
-                        isVoiceSessionPrimed = false
-                        store.cancelRecording()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 13, weight: .bold))
-                            Text("Discard")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundStyle(AppTheme.error)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(AppTheme.error.opacity(0.09), in: Capsule())
-                        .overlay(
-                            Capsule().stroke(AppTheme.error.opacity(0.18), lineWidth: 1)
-                        )
+                Button {
+                    isVoiceSessionPrimed = false
+                    store.cancelRecording()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Discard")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                    .padding(.bottom, 4)
+                    .foregroundStyle(AppTheme.error)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(AppTheme.error.opacity(0.09), in: Capsule())
+                    .overlay(
+                        Capsule().stroke(AppTheme.error.opacity(0.18), lineWidth: 1)
+                    )
                 }
+                .buttonStyle(.plain)
+                .disabled(!isRecordInteractionActive)
+                .opacity(isRecordInteractionActive ? 1 : 0)
+                .allowsHitTesting(isRecordInteractionActive)
+                .frame(height: 42)
+                .padding(.bottom, 4)
 
                 if let audioError = store.audioCaptureService.lastErrorMessage {
                     Text(audioError)
@@ -201,12 +203,16 @@ struct CaptureView: View {
 
     @ViewBuilder
     private func recordControl(layout: CaptureLayout) -> some View {
+        let loginNavy = Color(red: 0.03, green: 0.11, blue: 0.28)
+        let loginNavyDeep = Color(red: 0.01, green: 0.05, blue: 0.16)
+        let loginBlueGlow = Color(red: 0.27, green: 0.35, blue: 0.99)
+
         ZStack {
             Circle()
-                .fill(AppTheme.accent.opacity(0.05))
+                .fill((isRecordInteractionActive ? AppTheme.accent : loginBlueGlow).opacity(0.06))
                 .frame(width: layout.ringFrame, height: layout.ringFrame)
 
-            AudioPulseRings(isActive: isRecording, color: AppTheme.accent)
+            AudioPulseRings(isActive: isRecording, color: isRecordInteractionActive ? AppTheme.accent : loginBlueGlow)
                 .frame(width: layout.ringFrame - 6, height: layout.ringFrame - 6)
 
             Circle()
@@ -214,14 +220,14 @@ struct CaptureView: View {
                     LinearGradient(
                         colors: isRecordInteractionActive
                             ? [Color(uiColor: .systemRed), Color(uiColor: .systemPink)]
-                            : [AppTheme.accent, Color(uiColor: .systemBlue)],
+                            : [loginNavy, loginNavyDeep],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
                 .frame(width: layout.buttonCircle, height: layout.buttonCircle)
                 .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1.2))
-                .shadow(color: AppTheme.accent.opacity(0.18), radius: 20, y: 10)
+                .shadow(color: (isRecordInteractionActive ? AppTheme.accent : loginBlueGlow).opacity(0.18), radius: 20, y: 10)
 
             Image(systemName: isRecordInteractionActive ? "waveform" : "waveform.circle.fill")
                 .font(.system(size: layout.micIconSize, weight: .bold))
@@ -315,7 +321,7 @@ struct CaptureView: View {
         case .processing:
             return "Processing recording..."
         case .idle:
-            return isVoiceSessionPrimed ? "Preparing recording..." : "One expense • 15 seconds max"
+            return "One expense • 15 seconds max"
         }
     }
 
@@ -353,8 +359,7 @@ private struct TripPickerSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     @State private var newTripName = ""
-    @State private var destination = ""
-    @State private var baseCurrency = ""
+    @State private var baseCurrency: String? = nil
     @State private var startDate = Date()
     @State private var endDate: Date? = nil
 
@@ -398,17 +403,30 @@ private struct TripPickerSheet: View {
 
                 Section("Start New Trip") {
                     TextField("Trip name (e.g. Japan 2026)", text: $newTripName)
-                    TextField("Destination (optional)", text: $destination)
-                    TextField("Base currency (optional)", text: $baseCurrency)
-                        .textInputAutocapitalization(.characters)
+                    Menu {
+                        Button("Use app default (\(store.defaultCurrencyCode))") { baseCurrency = nil }
+                        ForEach(AppStore.supportedCurrencyCodes, id: \.self) { code in
+                            Button(code) { baseCurrency = code }
+                        }
+                    } label: {
+                        HStack {
+                            Text("Base currency")
+                            Spacer()
+                            Text(baseCurrency ?? "Use app default (\(store.defaultCurrencyCode))")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     DatePicker("Start date", selection: $startDate, displayedComponents: .date)
                     Button("Create and Set Active") {
                         store.addTrip(
                             name: newTripName,
-                            destination: destination,
                             startDate: startDate,
                             endDate: endDate,
-                            baseCurrency: baseCurrency,
+                            baseCurrency: baseCurrency ?? store.defaultCurrencyCode,
                             setActive: true
                         )
                         dismiss()

@@ -4,14 +4,11 @@ struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var authStore: AuthStore
 
-    @State private var defaultCurrency = "USD"
-    @State private var newCategoryName = ""
-    @State private var newCategoryHints = ""
+    @State private var showingCategoryBankPicker = false
+    @State private var isEditingCategories = false
     @State private var newTripName = ""
-    @State private var newTripDestination = ""
     @State private var newPaymentMethodName = ""
     @State private var newPaymentMethodAliases = ""
-    @State private var newPaymentMethodType: PaymentMethodType = .creditCard
 
     var body: some View {
         ScrollView {
@@ -115,9 +112,29 @@ struct SettingsView: View {
                     Text("Default currency")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(AppTheme.faintText)
-                    TextField("USD", text: $defaultCurrency)
-                        .textInputAutocapitalization(.characters)
-                        .modernField()
+                    Menu {
+                        ForEach(AppStore.supportedCurrencyCodes, id: \.self) { code in
+                            Button(code) { store.setDefaultCurrencyCode(code) }
+                        }
+                    } label: {
+                        HStack {
+                            Text(store.defaultCurrencyCode)
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.faintText)
+                        }
+                        .foregroundStyle(AppTheme.ink)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color(uiColor: .separator).opacity(0.20), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 HStack(spacing: 10) {
@@ -131,28 +148,29 @@ struct SettingsView: View {
     private var categoriesCard: some View {
         SpeakCard(padding: 16, cornerRadius: 22) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "Categories", subtitle: "Custom categories + parser hints")
-
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("New category (e.g. Hobbies)", text: $newCategoryName)
-                        .modernField()
-                    TextField("Hint keywords (comma-separated)", text: $newCategoryHints, axis: .vertical)
-                        .lineLimit(2...4)
-                        .modernField()
-                    Button {
-                        store.addCategory(name: newCategoryName, hints: [newCategoryHints])
-                        newCategoryName = ""
-                        newCategoryHints = ""
-                    } label: {
-                        Label("Add Category", systemImage: "plus")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .foregroundStyle(.white)
-                            .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Categories")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(AppTheme.ink)
+                        Text("Choose from curated categories for better parsing")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.faintText)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        iconCircleButton(systemName: "plus") {
+                            showingCategoryBankPicker = true
+                        }
+                        .disabled(availableCategoryBank.isEmpty)
+                        .opacity(availableCategoryBank.isEmpty ? 0.45 : 1)
+
+                        iconCircleButton(systemName: isEditingCategories ? "checkmark" : "pencil") {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isEditingCategories.toggle()
+                            }
+                        }
+                    }
                 }
 
                 ForEach(store.categoryDefinitions) { category in
@@ -164,23 +182,69 @@ struct SettingsView: View {
                                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                             }
                             Spacer()
-                            if category.name.caseInsensitiveCompare("Other") != .orderedSame {
+                            if isEditingCategories && category.name.caseInsensitiveCompare("Other") != .orderedSame {
                                 Button(role: .destructive) { store.removeCategory(category.id) } label: {
                                     Image(systemName: "trash")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(AppTheme.error)
                                 }
+                                .buttonStyle(.plain)
                             }
-                        }
-                        if !category.hintKeywords.isEmpty {
-                            Text(category.hintKeywords.joined(separator: ", "))
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.faintText)
                         }
                     }
                     .padding(.vertical, 4)
                 }
+
+                if availableCategoryBank.isEmpty {
+                    Text("All suggested categories are already added.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.faintText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                }
             }
         }
+        .confirmationDialog("Add Category", isPresented: $showingCategoryBankPicker, titleVisibility: .visible) {
+            ForEach(availableCategoryBank, id: \.name) { template in
+                Button(template.name) {
+                    store.addCategory(name: template.name, hints: template.hints)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose from the curated category bank.")
+        }
     }
+
+    private func iconCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(AppTheme.ink)
+                .frame(width: 34, height: 34)
+                .background(AppTheme.cardStrong, in: Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(uiColor: .separator).opacity(0.16), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var availableCategoryBank: [CategoryBankTemplate] {
+        let existing = Set(store.categoryDefinitions.map { $0.name.lowercased() })
+        return Self.categoryBank.filter { !existing.contains($0.name.lowercased()) }
+    }
+
+    private static let categoryBank: [CategoryBankTemplate] = [
+        .init(name: "Food", hints: ["restaurant, cafe, coffee, meal, lunch, dinner, breakfast"]),
+        .init(name: "Groceries", hints: ["grocery, groceries, supermarket, market, costco, walmart"]),
+        .init(name: "Transport", hints: ["uber, lyft, taxi, bus, train, metro, gas, fuel, toll, parking"]),
+        .init(name: "Shopping", hints: ["shopping, amazon, clothes, shoes, mall, store"]),
+        .init(name: "Utilities", hints: ["bill, electricity, internet, phone, water, utility, insurance"]),
+        .init(name: "Entertainment", hints: ["movie, concert, games, nightclub, club, bar, table, bottle, cover"]),
+        .init(name: "Subscriptions", hints: ["subscription, monthly, netflix, spotify, icloud, membership"])
+    ]
 
     private var tripsCard: some View {
         SpeakCard(padding: 16, cornerRadius: 22) {
@@ -189,14 +253,11 @@ struct SettingsView: View {
 
                 TextField("Trip name", text: $newTripName)
                     .modernField()
-                TextField("Destination (optional)", text: $newTripDestination)
-                    .modernField()
 
                 HStack(spacing: 10) {
                     Button {
-                        store.addTrip(name: newTripName, destination: newTripDestination, setActive: true)
+                        store.addTrip(name: newTripName, setActive: true)
                         newTripName = ""
-                        newTripDestination = ""
                     } label: {
                         Text("Add + Activate")
                             .frame(maxWidth: .infinity)
@@ -247,17 +308,11 @@ struct SettingsView: View {
 
                 TextField("Name (e.g. AMEX Gold)", text: $newPaymentMethodName)
                     .modernField()
-                Picker("Type", selection: $newPaymentMethodType) {
-                    ForEach(PaymentMethodType.allCases, id: \.self) { type in
-                        Text(type.title).tag(type)
-                    }
-                }
-                .pickerStyle(.segmented)
                 TextField("Aliases (comma-separated, e.g. amex, gold)", text: $newPaymentMethodAliases)
                     .modernField()
 
                 Button {
-                    store.addPaymentMethod(name: newPaymentMethodName, type: newPaymentMethodType, aliases: [newPaymentMethodAliases])
+                    store.addPaymentMethod(name: newPaymentMethodName, aliases: [newPaymentMethodAliases])
                     newPaymentMethodName = ""
                     newPaymentMethodAliases = ""
                 } label: {
@@ -281,7 +336,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(method.name)
                                     .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                Text(([method.type.title] + method.aliases.prefix(3)).joined(separator: " • "))
+                                Text(methodAliasSummary(method))
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.faintText)
                             }
@@ -303,6 +358,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "Offline & Sync", subtitle: "Queue uploads and parser retries")
 
+#if DEBUG
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Network (debug)")
@@ -320,6 +376,7 @@ struct SettingsView: View {
                     .labelsHidden()
                     .tint(AppTheme.accent)
                 }
+#endif
 
                 HStack(spacing: 10) {
                     MetricChip(title: "Pending", value: "\(store.queuedCaptures.filter { $0.status == .pending || $0.status == .syncing }.count)", tint: AppTheme.butter)
@@ -349,7 +406,7 @@ struct SettingsView: View {
     private var aboutCard: some View {
         SpeakCard(padding: 16, cornerRadius: 22, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "About", subtitle: "Feature wave in progress")
+                SectionHeader(title: "About", subtitle: "App information")
                 settingsRow("App Name", "Speakance")
                 settingsRow("Platform", "iOS")
                 settingsRow("Voice Limit (Paid)", "50 / day")
@@ -371,6 +428,16 @@ struct SettingsView: View {
                 .foregroundStyle(AppTheme.ink)
         }
     }
+
+    private func methodAliasSummary(_ method: PaymentMethod) -> String {
+        let summary = method.aliases.prefix(3).joined(separator: " • ")
+        return summary.isEmpty ? "No aliases" : summary
+    }
+}
+
+private struct CategoryBankTemplate {
+    let name: String
+    let hints: [String]
 }
 
 struct SettingsView_Previews: PreviewProvider {
