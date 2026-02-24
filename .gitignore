@@ -1,0 +1,8 @@
+.DS_Store
+DerivedData/
+*.xcworkspace
+xcuserdata/
+*.moved-aside
+*.xcuserstate
+Speakance.xcodeproj/project.xcworkspace/
+Speakance.xcodeproj/xcuserdata/

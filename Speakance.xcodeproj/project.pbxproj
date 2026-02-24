@@ -1,0 +1,509 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		161EE06FBD6BFE2060A5DF2C /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD91BE4A2AAC9B2B514025C0 /* AppStore.swift */; };
+		2A1E1EC1A76E2DF70242B13E /* QueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380ACA3401E5E480E6D9731 /* QueueStore.swift */; };
+		335EA4F3EA6188484FCBDAA8 /* MockAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C229C4DF7854383A3BCA2C51 /* MockAPIClient.swift */; };
+		39DBBCDE3573C844F982E66C /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FA89F83262E9488AB5C7E8 /* NetworkMonitor.swift */; };
+		3A170B8BBE76BAD4771849B9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA68E7008CE38379138FF067 /* SettingsView.swift */; };
+		3A23D1F8C11CA2A18A7B017D /* VisualComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A883B83983D7AF55919C3721 /* VisualComponents.swift */; };
+		3B9C64E6C42082D19DC41BDD /* RemoteExpenseAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F56C89BAB0B9B72A09AB7ED /* RemoteExpenseAPIClient.swift */; };
+		3CDE0E1DD565E882A1C82247 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A43EFB7516BA8E5241A43E /* AppConfig.swift */; };
+		3ED133E9732F9C27AFF99EBE /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8CA8A3F0C2861086DED5B8 /* FeedView.swift */; };
+		4AE514AB320F6492C44D0DCE /* ExpenseReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA616891FE3E81D13460854C /* ExpenseReviewView.swift */; };
+		56BAA3CBE673E10F8BBA2148 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9E45F15A7D01A547979B7A /* AudioCaptureService.swift */; };
+		5B500B6441B95C7876BB823D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B6EDEC488366115585F460A5 /* Assets.xcassets */; };
+		5D597566ED28EA93196E548C /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C426335EF045926F429AAB8F /* RootTabView.swift */; };
+		67FE3BB985F4FF61D1B0D857 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA951DC9F1FDA14D8D6482D /* AppTheme.swift */; };
+		6A987460BE1AAD300190E39A /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9ABAF039CFFD8FF78B57B6A /* AuthStore.swift */; };
+		91C6AECAC32BD0439FCCAA1B /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0811DE2ED09B52B0A1EB1D55 /* SyncEngine.swift */; };
+		9A1CA8BF7BF3E70618440485 /* SpeakanceApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28445141262DA8E9CD8D508 /* SpeakanceApp.swift */; };
+		B1AB76E2988C935DA589D3C9 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E9FD029AB3F03E0B43C549D /* ContentView.swift */; };
+		BCB70A1EAC1F298E98C59AA1 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABD20B645A5E2A563350A2F /* CaptureView.swift */; };
+		C81FC5D7F6EA125BA618BFE0 /* ExpenseModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB902AEEDACA77A6AE867A52 /* ExpenseModels.swift */; };
+		CB9638F39006319E87DF7FC0 /* AuthGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153080CE1B87361232323530 /* AuthGateView.swift */; };
+		FEE0AA719809FE93E1C2A5EA /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15DB85A1CAAAE4B9BEB55875 /* InsightsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0811DE2ED09B52B0A1EB1D55 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
+		153080CE1B87361232323530 /* AuthGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthGateView.swift; sourceTree = "<group>"; };
+		15DB85A1CAAAE4B9BEB55875 /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
+		1EA951DC9F1FDA14D8D6482D /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		4380ACA3401E5E480E6D9731 /* QueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStore.swift; sourceTree = "<group>"; };
+		47FA89F83262E9488AB5C7E8 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		5E9FD029AB3F03E0B43C549D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		6ABD20B645A5E2A563350A2F /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		8F56C89BAB0B9B72A09AB7ED /* RemoteExpenseAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteExpenseAPIClient.swift; sourceTree = "<group>"; };
+		A883B83983D7AF55919C3721 /* VisualComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualComponents.swift; sourceTree = "<group>"; };
+		AB9E45F15A7D01A547979B7A /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
+		B386C21D30D4DB8C2CF38A63 /* Speakance.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Speakance.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B6EDEC488366115585F460A5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BA68E7008CE38379138FF067 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		BD8CA8A3F0C2861086DED5B8 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
+		C229C4DF7854383A3BCA2C51 /* MockAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockAPIClient.swift; sourceTree = "<group>"; };
+		C28445141262DA8E9CD8D508 /* SpeakanceApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakanceApp.swift; sourceTree = "<group>"; };
+		C426335EF045926F429AAB8F /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		C9ABAF039CFFD8FF78B57B6A /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		CA616891FE3E81D13460854C /* ExpenseReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseReviewView.swift; sourceTree = "<group>"; };
+		DD91BE4A2AAC9B2B514025C0 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		F4A43EFB7516BA8E5241A43E /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		FB902AEEDACA77A6AE867A52 /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0DA4456357DCC0CAC783DB8F /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				547CAB14129778EF8B692B08 /* Auth */,
+				6FBCFF13975207A149503823 /* Capture */,
+				F3FFB25B5403A92643EF8569 /* Feed */,
+				28517BC3B3DFF6B802A6C8FB /* Insights */,
+				8C58662D10534F1B68422385 /* Review */,
+				295D9FB3C2CF1843990D2256 /* Settings */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		114FC63C7B6BC04CDDB17457 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				5E9FD029AB3F03E0B43C549D /* ContentView.swift */,
+				C426335EF045926F429AAB8F /* RootTabView.swift */,
+			);
+			path = Root;
+			sourceTree = "<group>";
+		};
+		28517BC3B3DFF6B802A6C8FB /* Insights */ = {
+			isa = PBXGroup;
+			children = (
+				15DB85A1CAAAE4B9BEB55875 /* InsightsView.swift */,
+			);
+			path = Insights;
+			sourceTree = "<group>";
+		};
+		295D9FB3C2CF1843990D2256 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				BA68E7008CE38379138FF067 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		3E5F9DEC3804268DAB1A75B9 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				C28445141262DA8E9CD8D508 /* SpeakanceApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		547CAB14129778EF8B692B08 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				153080CE1B87361232323530 /* AuthGateView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		612C203C98FF4B1B2015F1AB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B386C21D30D4DB8C2CF38A63 /* Speakance.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6FBCFF13975207A149503823 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				6ABD20B645A5E2A563350A2F /* CaptureView.swift */,
+			);
+			path = Capture;
+			sourceTree = "<group>";
+		};
+		73EADC4002927A187AA241D5 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				1EA951DC9F1FDA14D8D6482D /* AppTheme.swift */,
+				A883B83983D7AF55919C3721 /* VisualComponents.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		8C58662D10534F1B68422385 /* Review */ = {
+			isa = PBXGroup;
+			children = (
+				CA616891FE3E81D13460854C /* ExpenseReviewView.swift */,
+			);
+			path = Review;
+			sourceTree = "<group>";
+		};
+		978EF5692D8ECC05B0D0A637 = {
+			isa = PBXGroup;
+			children = (
+				B6EDEC488366115585F460A5 /* Assets.xcassets */,
+				CF40F87A3BB42B84E61AC66C /* Sources */,
+				612C203C98FF4B1B2015F1AB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A6A2DD23BCC0A721C7ACE2F6 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				DD91BE4A2AAC9B2B514025C0 /* AppStore.swift */,
+				AB9E45F15A7D01A547979B7A /* AudioCaptureService.swift */,
+				C229C4DF7854383A3BCA2C51 /* MockAPIClient.swift */,
+				47FA89F83262E9488AB5C7E8 /* NetworkMonitor.swift */,
+				4380ACA3401E5E480E6D9731 /* QueueStore.swift */,
+				8F56C89BAB0B9B72A09AB7ED /* RemoteExpenseAPIClient.swift */,
+				0811DE2ED09B52B0A1EB1D55 /* SyncEngine.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AD586F136E477C116379C106 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				FEED2E562F872D74D5753407 /* Auth */,
+				C545A1B9CBB30EAE1334CFE2 /* Config */,
+				73EADC4002927A187AA241D5 /* DesignSystem */,
+				E8272A0E51DF225177D85D2D /* Models */,
+				A6A2DD23BCC0A721C7ACE2F6 /* Services */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		C545A1B9CBB30EAE1334CFE2 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				F4A43EFB7516BA8E5241A43E /* AppConfig.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		CF40F87A3BB42B84E61AC66C /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				3E5F9DEC3804268DAB1A75B9 /* App */,
+				AD586F136E477C116379C106 /* Core */,
+				0DA4456357DCC0CAC783DB8F /* Features */,
+				114FC63C7B6BC04CDDB17457 /* Root */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		E8272A0E51DF225177D85D2D /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				FB902AEEDACA77A6AE867A52 /* ExpenseModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		F3FFB25B5403A92643EF8569 /* Feed */ = {
+			isa = PBXGroup;
+			children = (
+				BD8CA8A3F0C2861086DED5B8 /* FeedView.swift */,
+			);
+			path = Feed;
+			sourceTree = "<group>";
+		};
+		FEED2E562F872D74D5753407 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				C9ABAF039CFFD8FF78B57B6A /* AuthStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		045397DCA043AE3C7DC60E9B /* Speakance */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C668B8AC23D55F937E4A7CF9 /* Build configuration list for PBXNativeTarget "Speakance" */;
+			buildPhases = (
+				45034B7DA2E531C66DECE3A4 /* Sources */,
+				21D4FFDE38D5EA3EAE918D3A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Speakance;
+			packageProductDependencies = (
+			);
+			productName = Speakance;
+			productReference = B386C21D30D4DB8C2CF38A63 /* Speakance.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BC9B5CB54B7DB195180164DE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = BE06E25BA1AED145CB918A7D /* Build configuration list for PBXProject "Speakance" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 978EF5692D8ECC05B0D0A637;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				045397DCA043AE3C7DC60E9B /* Speakance */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		21D4FFDE38D5EA3EAE918D3A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B500B6441B95C7876BB823D /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		45034B7DA2E531C66DECE3A4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3CDE0E1DD565E882A1C82247 /* AppConfig.swift in Sources */,
+				161EE06FBD6BFE2060A5DF2C /* AppStore.swift in Sources */,
+				67FE3BB985F4FF61D1B0D857 /* AppTheme.swift in Sources */,
+				56BAA3CBE673E10F8BBA2148 /* AudioCaptureService.swift in Sources */,
+				CB9638F39006319E87DF7FC0 /* AuthGateView.swift in Sources */,
+				6A987460BE1AAD300190E39A /* AuthStore.swift in Sources */,
+				BCB70A1EAC1F298E98C59AA1 /* CaptureView.swift in Sources */,
+				B1AB76E2988C935DA589D3C9 /* ContentView.swift in Sources */,
+				C81FC5D7F6EA125BA618BFE0 /* ExpenseModels.swift in Sources */,
+				4AE514AB320F6492C44D0DCE /* ExpenseReviewView.swift in Sources */,
+				3ED133E9732F9C27AFF99EBE /* FeedView.swift in Sources */,
+				FEE0AA719809FE93E1C2A5EA /* InsightsView.swift in Sources */,
+				335EA4F3EA6188484FCBDAA8 /* MockAPIClient.swift in Sources */,
+				39DBBCDE3573C844F982E66C /* NetworkMonitor.swift in Sources */,
+				2A1E1EC1A76E2DF70242B13E /* QueueStore.swift in Sources */,
+				3B9C64E6C42082D19DC41BDD /* RemoteExpenseAPIClient.swift in Sources */,
+				5D597566ED28EA93196E548C /* RootTabView.swift in Sources */,
+				3A170B8BBE76BAD4771849B9 /* SettingsView.swift in Sources */,
+				9A1CA8BF7BF3E70618440485 /* SpeakanceApp.swift in Sources */,
+				91C6AECAC32BD0439FCCAA1B /* SyncEngine.swift in Sources */,
+				3A23D1F8C11CA2A18A7B017D /* VisualComponents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1ADD2B55748EC83033463B78 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.speakance;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		1D598D114EA2C29E5BD204A6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.speakance;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		6BC03FFA4C92ADEAA75CC6F0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Speakance;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Speakance uses the microphone so you can record expense entries by voice.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speakance may use speech recognition to transcribe your expense recordings.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = (
+					arm64,
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9B925C6840AE241AB1ADAAE9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Speakance;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Speakance uses the microphone so you can record expense entries by voice.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speakance may use speech recognition to transcribe your expense recordings.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = (
+					arm64,
+				);
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BE06E25BA1AED145CB918A7D /* Build configuration list for PBXProject "Speakance" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1D598D114EA2C29E5BD204A6 /* Debug */,
+				1ADD2B55748EC83033463B78 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C668B8AC23D55F937E4A7CF9 /* Build configuration list for PBXNativeTarget "Speakance" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9B925C6840AE241AB1ADAAE9 /* Debug */,
+				6BC03FFA4C92ADEAA75CC6F0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BC9B5CB54B7DB195180164DE /* Project object */;
+}
