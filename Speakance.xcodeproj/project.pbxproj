@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		161EE06FBD6BFE2060A5DF2C /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD91BE4A2AAC9B2B514025C0 /* AppStore.swift */; };
+		21B74F0D6C3FE5076EB9570A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 25A5FB625ED4E88080D9FA7D /* PrivacyInfo.xcprivacy */; };
 		2A1E1EC1A76E2DF70242B13E /* QueueStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4380ACA3401E5E480E6D9731 /* QueueStore.swift */; };
 		335EA4F3EA6188484FCBDAA8 /* MockAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C229C4DF7854383A3BCA2C51 /* MockAPIClient.swift */; };
 		39DBBCDE3573C844F982E66C /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FA89F83262E9488AB5C7E8 /* NetworkMonitor.swift */; };
@@ -36,6 +37,7 @@
 		153080CE1B87361232323530 /* AuthGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthGateView.swift; sourceTree = "<group>"; };
 		15DB85A1CAAAE4B9BEB55875 /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
 		1EA951DC9F1FDA14D8D6482D /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		25A5FB625ED4E88080D9FA7D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4380ACA3401E5E480E6D9731 /* QueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStore.swift; sourceTree = "<group>"; };
 		47FA89F83262E9488AB5C7E8 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		5E9FD029AB3F03E0B43C549D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -149,6 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				B6EDEC488366115585F460A5 /* Assets.xcassets */,
+				25A5FB625ED4E88080D9FA7D /* PrivacyInfo.xcprivacy */,
 				CF40F87A3BB42B84E61AC66C /* Sources */,
 				612C203C98FF4B1B2015F1AB /* Products */,
 			);
@@ -277,6 +280,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5B500B6441B95C7876BB823D /* Assets.xcassets in Resources */,
+				21B74F0D6C3FE5076EB9570A /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

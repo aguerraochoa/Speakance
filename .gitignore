@@ -6,3 +6,5 @@ xcuserdata/
 *.xcuserstate
 Speakance.xcodeproj/project.xcworkspace/
 Speakance.xcodeproj/xcuserdata/
+supabase/.temp/
+supabase/.branches/
