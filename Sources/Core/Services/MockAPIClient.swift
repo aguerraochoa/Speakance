@@ -7,6 +7,7 @@ struct ParseExpenseRequestDTO {
     let audioDurationSeconds: Int?
     let localAudioFilePath: String?
     let rawText: String
+    let currencyHint: String?
     let timezone: String
     let tripID: UUID?
     let tripName: String?
@@ -49,7 +50,7 @@ struct MockExpenseAPIClient: ExpenseAPIClientProtocol {
 
         let amountMatch = request.rawText.range(of: #"\d+(?:[.,]\d{1,2})?"#, options: .regularExpression)
         let amountText = amountMatch.map { String(request.rawText[$0]).replacingOccurrences(of: ",", with: ".") } ?? "1"
-        let currency = lower.contains("peso") ? "MXN" : "USD"
+        let currency = lower.contains("peso") ? "MXN" : (request.currencyHint ?? "USD")
 
         let category: String
         switch lower {

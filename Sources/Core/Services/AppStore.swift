@@ -172,6 +172,7 @@ final class AppStore: ObservableObject {
                     audioDurationSeconds: queuedCaptures[index].audioDurationSeconds,
                     localAudioFilePath: queuedCaptures[index].localAudioFilePath,
                     rawText: rawText,
+                    currencyHint: defaultCurrencyCode,
                     timezone: TimeZone.current.identifier,
                     tripID: queuedCaptures[index].tripID,
                     tripName: queuedCaptures[index].tripName,
@@ -639,6 +640,13 @@ final class AppStore: ObservableObject {
             return
         }
 
+        // Recurring phrasing like "weekly Tuesday tournament" should not be treated
+        // as a specific date reference for this expense.
+        if Self.containsRecurringWeekdayCue(in: lower) {
+            draft.expenseDate = calendar.startOfDay(for: baseDate)
+            return
+        }
+
         guard Self.containsLikelyDateCue(in: lower) else { return }
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return }
         let range = NSRange(sourceText.startIndex..<sourceText.endIndex, in: sourceText)
@@ -859,9 +867,14 @@ final class AppStore: ObservableObject {
     private static func containsLikelyDateCue(in lowerText: String) -> Bool {
         if lowerText.contains(" on ") || lowerText.contains(" at ") { /* weak cues, continue checks */ }
         let keywords = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-                        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
                         "today", "yesterday", "tomorrow", "last "]
         if keywords.contains(where: { lowerText.contains($0) }) { return true }
+        if lowerText.range(
+            of: #"\b(?:on|this|last|next)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return true
+        }
         if lowerText.range(of: #"\b\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?\b"#, options: .regularExpression) != nil {
             return true
         }
@@ -869,6 +882,17 @@ final class AppStore: ObservableObject {
             return true
         }
         return false
+    }
+
+    private static func containsRecurringWeekdayCue(in lowerText: String) -> Bool {
+        let patterns = [
+            #"\b(?:every|weekly)\b[\w\s,-]{0,24}\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"#,
+            #"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b[\w\s,-]{0,24}\b(?:every week|weekly)\b"#
+        ]
+
+        return patterns.contains { pattern in
+            lowerText.range(of: pattern, options: .regularExpression) != nil
+        }
     }
 
     private static func normalizedCurrencyCode(_ raw: String?) -> String? {

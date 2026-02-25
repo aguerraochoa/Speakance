@@ -86,7 +86,11 @@ struct FeedView: View {
                 }
 
                 HStack(spacing: 10) {
-                    MetricChip(title: "Month", value: CurrencyFormatter.string(store.monthlySpendTotal), tint: AppTheme.accent)
+                    MetricChip(
+                        title: "Month",
+                        value: CurrencyFormatter.string(store.monthlySpendTotal, currency: store.defaultCurrencyCode),
+                        tint: AppTheme.accent
+                    )
                     MetricChip(title: "Queue", value: "\(store.queuedCaptures.filter { $0.status != .saved }.count)", tint: AppTheme.sky)
                 }
             }

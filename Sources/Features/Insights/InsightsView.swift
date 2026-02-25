@@ -6,6 +6,7 @@ struct InsightsView: View {
     @State private var selectedPaymentMethodID: UUID?
     @State private var selectedMonthFilter: InsightsMonthFilter = .currentMonth
     @State private var selectedTrendYear: Int = Calendar.current.component(.year, from: .now)
+    @State private var selectedTrendSegment: TrendChartSelection?
 
     var body: some View {
         GeometryReader { proxy in
@@ -25,6 +26,9 @@ struct InsightsView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
+        .onChange(of: selectedTripID) { _ in selectedTrendSegment = nil }
+        .onChange(of: selectedPaymentMethodID) { _ in selectedTrendSegment = nil }
+        .onChange(of: selectedTrendYear) { _ in selectedTrendSegment = nil }
     }
 
     private var baseFilteredExpenses: [ExpenseRecord] {
@@ -354,7 +358,39 @@ struct InsightsView: View {
                         .foregroundStyle(AppTheme.faintText)
                 }
 
-                MonthlyCategoryStackedChartView(months: trendChartMonths)
+                Group {
+                    if let selection = selectedTrendSegment {
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(AppTheme.categoryColor(selection.category))
+                                .frame(width: 8, height: 8)
+                            Text("\(monthName(selection.month)) · \(selection.category)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.ink)
+                            Spacer(minLength: 8)
+                            Text(insightsCurrencyString(selection.amount))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.ink)
+                            Text(selection.percentText)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.faintText)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color(uiColor: .separator).opacity(0.14), lineWidth: 1)
+                        )
+                    } else {
+                        Text("Tap a category segment in a month bar to see details.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.faintText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                MonthlyCategoryStackedChartView(months: trendChartMonths, selection: $selectedTrendSegment)
                     .frame(height: 240)
 
                 if trendLegendCategories.isEmpty {
@@ -482,9 +518,16 @@ struct InsightsView: View {
         let roundedDouble = NSDecimalNumber(decimal: amount).doubleValue.rounded()
         return CurrencyFormatter.string(
             Decimal(roundedDouble),
+            currency: store.defaultCurrencyCode,
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         )
+    }
+
+    private func monthName(_ month: Int) -> String {
+        let symbols = Calendar.current.monthSymbols
+        guard month >= 1, month <= symbols.count else { return "Month" }
+        return symbols[month - 1]
     }
 }
 
@@ -536,8 +579,26 @@ private struct MonthlyCategoryStackSegment: Identifiable {
     let color: Color
 }
 
+private struct TrendChartSelection: Equatable {
+    let month: Int
+    let category: String
+    let amount: Decimal
+    let monthTotal: Decimal
+
+    var ratio: Double {
+        let total = NSDecimalNumber(decimal: monthTotal).doubleValue
+        guard total > 0 else { return 0 }
+        return max(0, min(1, NSDecimalNumber(decimal: amount).doubleValue / total))
+    }
+
+    var percentText: String {
+        "\(Int((ratio * 100).rounded()))% of month"
+    }
+}
+
 private struct MonthlyCategoryStackedChartView: View {
     let months: [MonthlyCategoryStack]
+    @Binding var selection: TrendChartSelection?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -574,11 +635,28 @@ private struct MonthlyCategoryStackedChartView: View {
             ZStack(alignment: .bottom) {
                 if monthTotal > 0 {
                     VStack(spacing: 0) {
-                        ForEach(month.segments.reversed()) { segment in
+                        ForEach(Array(month.segments.reversed())) { segment in
                             let amount = NSDecimalNumber(decimal: segment.amount).doubleValue
+                            let isSelected = selection?.month == month.month && selection?.category == segment.category
+                            let isDimmed = selection != nil && !isSelected
                             Rectangle()
                                 .fill(segment.color)
                                 .frame(height: max(2, barHeight * CGFloat(amount / monthTotal)))
+                                .opacity(isDimmed ? 0.28 : 1)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    let next = TrendChartSelection(
+                                        month: month.month,
+                                        category: segment.category,
+                                        amount: segment.amount,
+                                        monthTotal: month.total
+                                    )
+                                    if selection?.month == next.month && selection?.category == next.category {
+                                        selection = nil
+                                    } else {
+                                        selection = next
+                                    }
+                                }
                         }
                     }
                     .frame(height: barHeight, alignment: .bottom)
@@ -593,6 +671,10 @@ private struct MonthlyCategoryStackedChartView: View {
                             .stroke(Color.black.opacity(0.03), lineWidth: 0.5)
                     )
                 }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if monthTotal == 0 { selection = nil }
             }
         }
         .frame(maxWidth: .infinity)
