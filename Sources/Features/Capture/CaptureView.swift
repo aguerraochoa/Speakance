@@ -5,6 +5,7 @@ struct CaptureView: View {
     @State private var quickText = ""
     @State private var mode: CaptureInputMode = .speak
     @State private var isVoiceSessionPrimed = false
+    @State private var didRequestVoiceStop = false
     @State private var showingTripSheet = false
     @FocusState private var isQuickTextFocused: Bool
 
@@ -41,6 +42,7 @@ struct CaptureView: View {
         }
         .onChange(of: mode) { _, _ in
             isVoiceSessionPrimed = false
+            didRequestVoiceStop = false
             if mode != .text {
                 isQuickTextFocused = false
             }
@@ -48,6 +50,7 @@ struct CaptureView: View {
         .onChange(of: store.audioCaptureService.state) { _, newState in
             if case .idle = newState {
                 isVoiceSessionPrimed = false
+                didRequestVoiceStop = false
             }
         }
         .sheet(isPresented: $showingTripSheet) {
@@ -164,6 +167,7 @@ struct CaptureView: View {
 
                 Button {
                     isVoiceSessionPrimed = false
+                    didRequestVoiceStop = false
                     store.cancelRecording()
                 } label: {
                     HStack(spacing: 8) {
@@ -239,9 +243,11 @@ struct CaptureView: View {
         .onTapGesture {
             if isRecordInteractionActive {
                 isVoiceSessionPrimed = false
+                didRequestVoiceStop = true
                 store.stopRecordingAndCreateEntry()
             } else {
                 isVoiceSessionPrimed = true
+                didRequestVoiceStop = false
                 store.startRecording()
             }
         }
@@ -317,6 +323,9 @@ struct CaptureView: View {
         case .requestingPermission:
             return "Allow microphone access to start recording"
         case .recording:
+            if didRequestVoiceStop {
+                return "Processing recording..."
+            }
             return "Listening... Tap again to send"
         case .processing:
             return "Processing recording..."

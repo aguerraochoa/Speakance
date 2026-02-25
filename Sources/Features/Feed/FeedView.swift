@@ -198,12 +198,16 @@ struct FeedView: View {
             )
 
             ForEach(store.queuedCaptures) { item in
-                Button {
-                    if item.status == .needsReview { store.openReview(for: item) }
-                } label: {
+                SwipeRevealExpenseRow(
+                    onTap: {
+                        if item.status == .needsReview { store.openReview(for: item) }
+                    },
+                    onDelete: {
+                        store.deleteQueueItem(item)
+                    }
+                ) {
                     queueRow(item)
                 }
-                .buttonStyle(.plain)
             }
         }
     }

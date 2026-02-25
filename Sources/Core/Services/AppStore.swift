@@ -302,6 +302,18 @@ final class AppStore: ObservableObject {
         activeReview = nil
     }
 
+    func deleteQueueItem(_ item: QueuedCapture) {
+        if let idx = queuedCaptures.firstIndex(where: { $0.id == item.id }) {
+            let removed = queuedCaptures.remove(at: idx)
+            cleanupLocalAudioFileIfNeeded(for: removed)
+            persistQueue()
+
+            if activeReview?.queueID == removed.id {
+                activeReview = nil
+            }
+        }
+    }
+
     func deleteExpense(_ expense: ExpenseRecord) {
         let removed = expense
         let originalIndex = expenses.firstIndex(where: { $0.id == expense.id })
