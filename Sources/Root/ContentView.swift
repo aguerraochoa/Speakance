@@ -6,14 +6,35 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if authStore.isConfigured && !authStore.isAuthenticated {
-                AuthGateView()
-            } else {
+            if !authStore.isConfigured {
                 RootTabView()
                     .sheet(item: $store.activeReview) { context in
                         ExpenseReviewView(context: context)
                             .environmentObject(store)
                     }
+            } else {
+                switch authStore.state {
+                case .signedIn:
+                    RootTabView()
+                        .sheet(item: $store.activeReview) { context in
+                            ExpenseReviewView(context: context)
+                                .environmentObject(store)
+                        }
+                case .loading:
+                    ZStack {
+                        AppCanvasBackground()
+                        ProgressView()
+                            .controlSize(.large)
+                    }
+                case .disabled:
+                    RootTabView()
+                        .sheet(item: $store.activeReview) { context in
+                            ExpenseReviewView(context: context)
+                                .environmentObject(store)
+                        }
+                case .signedOut, .pendingEmailVerification, .passwordResetEmailSent, .error:
+                    AuthGateView()
+                }
             }
         }
         .task(id: authStore.state) {
