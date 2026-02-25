@@ -364,7 +364,7 @@ struct InsightsView: View {
                             Circle()
                                 .fill(AppTheme.categoryColor(selection.category))
                                 .frame(width: 8, height: 8)
-                            Text("\(monthName(selection.month)) · \(selection.category)")
+                            Text(selection.category)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(AppTheme.ink)
                             Spacer(minLength: 8)
@@ -375,20 +375,26 @@ struct InsightsView: View {
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.faintText)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color(uiColor: .separator).opacity(0.14), lineWidth: 1)
-                        )
                     } else {
-                        Text("Tap a category segment in a month bar to see details.")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.faintText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(Color.clear)
+                                .frame(width: 8, height: 8)
+                            Text("Tap a category segment to see details.")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.faintText)
+                            Spacer(minLength: 8)
+                        }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(minHeight: 38)
+                .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(uiColor: .separator).opacity(0.14), lineWidth: 1)
+                )
 
                 MonthlyCategoryStackedChartView(months: trendChartMonths, selection: $selectedTrendSegment)
                     .frame(height: 240)
@@ -524,11 +530,6 @@ struct InsightsView: View {
         )
     }
 
-    private func monthName(_ month: Int) -> String {
-        let symbols = Calendar.current.monthSymbols
-        guard month >= 1, month <= symbols.count else { return "Month" }
-        return symbols[month - 1]
-    }
 }
 
 private enum InsightsMonthFilter: Hashable {
