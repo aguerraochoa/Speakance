@@ -263,6 +263,7 @@ Deno.serve(async (req) => {
       rawText,
       capturedAtDevice: body.captured_at_device,
       currencyHint: body.currency_hint,
+      languageHint: body.language_hint,
       defaultCurrency: profile?.default_currency ?? undefined,
       categoryContext: parserCategoryContext,
     });
@@ -391,6 +392,7 @@ async function resolveInputText(opts: {
       openAiApiKey: opts.openAiApiKey,
       bucket: (opts.body.storage_bucket?.trim() || VOICE_CAPTURES_BUCKET),
       objectPath: storageObjectPath,
+      languageHint: normalizeLanguageHint(opts.body.language_hint),
     });
     if (transcribed.text) return { text: transcribed.text, error: null };
     if (transcribed.error) return { text: null, error: transcribed.error };
@@ -404,6 +406,7 @@ async function transcribeVoiceCaptureFromStorage(opts: {
   openAiApiKey: string | undefined;
   bucket: string;
   objectPath: string;
+  languageHint?: "en" | "es";
 }): Promise<{ text: string | null; error: string | null }> {
   if (!opts.openAiApiKey) {
     console.error("OPENAI_API_KEY missing; cannot transcribe voice capture");
@@ -435,6 +438,9 @@ async function transcribeVoiceCaptureFromStorage(opts: {
     form.append("model", OPENAI_TRANSCRIBE_MODEL);
     form.append("response_format", "json");
     form.append("temperature", "0");
+    if (opts.languageHint) {
+      form.append("language", opts.languageHint);
+    }
     form.append("file", fileBlob);
 
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -812,10 +818,16 @@ function parseExpenseDeterministically(
   if (!opts.categoryContext.categoryNames.has(category)) category = "Other";
 
   const expenseDate = inferExpenseDate(rawText, opts.capturedAtDevice);
-  const description = buildDescription(rawText, {
+  const builtDescription = buildDescription(rawText, {
     amountMatch: amountMatch?.[1] ?? null,
     category,
     aliasToCategory: opts.categoryContext.aliasToCategory,
+  });
+  const refinedNarrative = refineParsedNarrative({
+    rawText,
+    category,
+    description: builtDescription,
+    merchant: null,
   });
 
   let confidence = 0.7;
@@ -825,7 +837,7 @@ function parseExpenseDeterministically(
   if (hasExplicitCurrency) confidence += 0.04;
   if (tokens.length >= 3) confidence += 0.03;
   if (tokens.length >= 5) confidence += 0.03;
-  const normalizedDescription = description.toLowerCase().trim();
+  const normalizedDescription = refinedNarrative.description.toLowerCase().trim();
   if (hasAmount && category !== "Other" && normalizedDescription.length >= 3 && normalizedDescription !== "on") {
     confidence += 0.04;
   }
@@ -838,8 +850,8 @@ function parseExpenseDeterministically(
       amount: hasAmount ? amount : 1,
       currency,
       category,
-      description,
-      merchant: null,
+      description: refinedNarrative.description,
+      merchant: refinedNarrative.merchant,
       expense_date: expenseDate,
     },
     confidence: clamp(confidence, 0.4, 0.99),
@@ -870,6 +882,7 @@ async function parseExpenseWithOpenAI(opts: {
   rawText: string;
   capturedAtDevice: string;
   currencyHint?: string;
+  languageHint?: "en" | "es";
   defaultCurrency?: string;
   categoryContext: ParserCategoryContext;
 }): Promise<ParseOutcome | null> {
@@ -877,6 +890,7 @@ async function parseExpenseWithOpenAI(opts: {
 
   const fallbackDate = new Date(opts.capturedAtDevice).toISOString().slice(0, 10);
   const defaultCurrency = (opts.currencyHint ?? opts.defaultCurrency ?? "USD").toUpperCase();
+  const outputLanguageHint = normalizeLanguageHint(opts.languageHint);
 
   const allowedCategories = opts.categoryContext.categories.map((c) => c.name);
   const categoryHintsText = opts.categoryContext.categories
@@ -896,7 +910,10 @@ async function parseExpenseWithOpenAI(opts: {
     `- expense_date: YYYY-MM-DD, default to ${fallbackDate} if not specified`,
     "- confidence: number 0 to 1",
     "- merchant can be null",
-    "- description should be concise and useful",
+    "- description should be concise and useful (3-10 words when possible), remove filler words and rambling",
+    `- language: keep description/merchant in the user's language${outputLanguageHint ? ` (preferred: ${outputLanguageHint})` : " when clear"}`,
+    "- if the user mentions a place/restaurant/store, put it in merchant",
+    "- good description example: 'Food with friends at Peter Piper Pizza'",
     "Available categories and examples:",
     categoryHintsText,
     `User text: ${opts.rawText}`,
@@ -940,6 +957,7 @@ async function parseExpenseWithOpenAI(opts: {
       rawText: opts.rawText,
       fallbackDate,
       defaultCurrency,
+      languageHint: outputLanguageHint,
       categoryContext: opts.categoryContext,
     });
     if (!normalized) return null;
@@ -962,7 +980,13 @@ async function parseExpenseWithOpenAI(opts: {
 
 function normalizeParsedExpense(
   input: unknown,
-  opts: { rawText: string; fallbackDate: string; defaultCurrency: string; categoryContext: ParserCategoryContext },
+  opts: {
+    rawText: string;
+    fallbackDate: string;
+    defaultCurrency: string;
+    languageHint?: "en" | "es";
+    categoryContext: ParserCategoryContext;
+  },
 ): ParsedExpense | null {
   if (!input || typeof input !== "object") return null;
   const record = input as Record<string, unknown>;
@@ -981,11 +1005,16 @@ function normalizeParsedExpense(
   const category = normalizeCategory(categoryRaw, opts.categoryContext);
 
   const descriptionRaw = typeof record.description === "string" ? record.description.trim() : "";
-  const description = descriptionRaw || opts.rawText;
-
-  const merchant = typeof record.merchant === "string"
+  const merchantRaw = typeof record.merchant === "string"
     ? record.merchant.trim() || null
     : null;
+  const refined = refineParsedNarrative({
+    rawText: opts.rawText,
+    category,
+    description: descriptionRaw || opts.rawText,
+    merchant: merchantRaw,
+    languageHint: opts.languageHint,
+  });
 
   const dateRaw = typeof record.expense_date === "string" ? record.expense_date.trim() : "";
   const expenseDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : opts.fallbackDate;
@@ -994,8 +1023,8 @@ function normalizeParsedExpense(
     amount,
     currency,
     category,
-    description,
-    merchant,
+    description: refined.description,
+    merchant: refined.merchant,
     expense_date: expenseDate,
   };
 }
@@ -1053,6 +1082,148 @@ function buildDescription(
     text = "";
   }
   return text || rawText.trim();
+}
+
+function normalizeLanguageHint(value: unknown): "en" | "es" | undefined {
+  if (value === "en" || value === "es") return value;
+  return undefined;
+}
+
+function refineParsedNarrative(opts: {
+  rawText: string;
+  category: string;
+  description: string;
+  merchant: string | null;
+  languageHint?: "en" | "es";
+}): { description: string; merchant: string | null } {
+  const rawText = opts.rawText.trim();
+  const language = opts.languageHint ?? inferLanguageFromText(rawText);
+  const merchant = normalizeMerchantName(opts.merchant) ?? extractMerchantFromText(rawText) ?? extractMerchantFromText(opts.description);
+  const hasFriends = /\b(friends?|amigos?|compas|banda)\b/i.test(rawText);
+
+  const cleanedDescription = compactDescriptionText(opts.description || rawText)
+    || compactDescriptionText(rawText)
+    || opts.category;
+
+  const shouldComposeCanonical =
+    hasFriends ||
+    Boolean(merchant) ||
+    cleanedDescription.length > 52 ||
+    cleanedDescription.toLowerCase() === rawText.toLowerCase() ||
+    /\b(um+|uh+|like|este+|eh+|mmm+)\b/i.test(rawText);
+
+  let description = cleanedDescription;
+  if (shouldComposeCanonical) {
+    description = composeSmartDescription({
+      category: opts.category,
+      merchant,
+      hasFriends,
+      language,
+      fallback: cleanedDescription,
+    });
+  }
+
+  return {
+    description: description.slice(0, 90).trim(),
+    merchant,
+  };
+}
+
+function composeSmartDescription(opts: {
+  category: string;
+  merchant: string | null;
+  hasFriends: boolean;
+  language?: "en" | "es";
+  fallback: string;
+}): string {
+  const useSpanish = opts.language === "es";
+  if (opts.merchant && opts.hasFriends) {
+    return useSpanish
+      ? `${opts.category} con amigos en ${opts.merchant}`
+      : `${opts.category} with friends at ${opts.merchant}`;
+  }
+  if (opts.merchant) {
+    return useSpanish
+      ? `${opts.category} en ${opts.merchant}`
+      : `${opts.category} at ${opts.merchant}`;
+  }
+  if (opts.hasFriends) {
+    return useSpanish
+      ? `${opts.category} con amigos`
+      : `${opts.category} with friends`;
+  }
+  return opts.fallback || opts.category;
+}
+
+function compactDescriptionText(input: string): string {
+  let text = input.trim();
+  if (!text) return "";
+
+  text = text
+    .replace(/\b\d+(?:[.,]\d{1,2})?\b/g, " ")
+    .replace(/\b(mxn|usd|eur|gbp|jpy|cad|brl)\b/gi, " ")
+    .replace(/[€$£¥]/g, " ")
+    .replace(/\b(peso|pesos|dollar|dollars|euro|euros|pound|pounds|yen)\b/gi, " ")
+    .replace(/\b(umm+|um+|uh+|mmm+|like|you know|kinda|sorta)\b/gi, " ")
+    .replace(/\b(este+|eh+|pues|osea|o sea|como que|esteem?)\b/gi, " ")
+    .replace(/\b(i|we|my|me|yo|nosotros|nosotras|con mis|con mi)\b/gi, " ")
+    .replace(/\b(went|go|going|salí|sali|fuí|fui|fuimos|iba|went out|go out)\b/gi, " ")
+    .replace(/\b(spent|spend|paid|pay|bought|buy|purchase|purchased|cost)\b/gi, " ")
+    .replace(/\b(gast[ée]|gaste|pagu[ée]|pague|compr[ée]|compre|cost[oó])\b/gi, " ")
+    .replace(/\b(on|for|to|the|and|then|that|a|an)\b/gi, " ")
+    .replace(/\b(en|para|por|y|que|de|del|la|el|los|las|un|una)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  text = text.replace(/^[,.;:\-]+|[,.;:\-]+$/g, "").trim();
+  if (!text) return "";
+  if (/^(at|in|with|on|en|con|para|por)$/i.test(text)) return "";
+  return capitalizeFirst(text);
+}
+
+function extractMerchantFromText(input: string): string | null {
+  const patterns = [
+    /\b(?:at|en)\s+([A-Za-zÀ-ÿ0-9&'".\- ]{2,48})/i,
+    /\b(?:from|de)\s+([A-Za-zÀ-ÿ0-9&'".\- ]{2,48})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = input.match(pattern);
+    const raw = match?.[1]?.trim();
+    if (!raw) continue;
+    const merchant = raw
+      .replace(/\b(?:with|con|for|por|and|y)\b.*$/i, "")
+      .replace(/[.,;:]+$/g, "")
+      .trim();
+    if (!merchant) continue;
+    if (/^(food|transport|shopping|entertainment|other|groceries|utilities|subscriptions)$/i.test(merchant)) continue;
+    return normalizeMerchantName(merchant);
+  }
+  return null;
+}
+
+function normalizeMerchantName(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim().replace(/\s{2,}/g, " ");
+  if (!trimmed) return null;
+  if (trimmed.length > 50) return trimmed.slice(0, 50).trim();
+  return trimmed;
+}
+
+function inferLanguageFromText(text: string): "en" | "es" | undefined {
+  const lower = text.toLowerCase();
+  const spanishSignals = [
+    /\b(gaste|gast[eé]|pague|pagu[eé]|compre|compr[eé]|amigos|restaurante|comida|uber)\b/i,
+    /\b(hoy|ayer|mañana|anoche|con|en|para|por)\b/i,
+  ];
+  if (spanishSignals.some((re) => re.test(lower))) return "es";
+  const englishSignals = [/\b(spent|paid|bought|friends|yesterday|today|tonight)\b/i];
+  if (englishSignals.some((re) => re.test(lower))) return "en";
+  return undefined;
+}
+
+function capitalizeFirst(text: string): string {
+  if (!text) return text;
+  return text[0].toUpperCase() + text.slice(1);
 }
 
 function isVoicePlaceholderText(value: string): boolean {

@@ -25,8 +25,13 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private var recorder: AVAudioRecorder?
     private var autoStopTask: Task<Void, Never>?
     private var speechTask: SFSpeechRecognitionTask?
+    private var preferredSpeechLocaleIdentifier: String?
     private let maxDurationSeconds = 15
     private let minimumUsefulDurationSeconds = 1
+
+    func setPreferredSpeechLocaleIdentifier(_ identifier: String?) {
+        preferredSpeechLocaleIdentifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+    }
 
     func startRecording() {
         guard !isBusy else { return }
@@ -178,8 +183,16 @@ final class AudioCaptureService: NSObject, ObservableObject {
     }
 
     private func activeSpeechRecognizer() -> SFSpeechRecognizer? {
+        if let preferredSpeechLocaleIdentifier,
+           let preferred = SFSpeechRecognizer(locale: Locale(identifier: preferredSpeechLocaleIdentifier)),
+           preferred.isAvailable {
+            return preferred
+        }
         if let local = SFSpeechRecognizer(locale: Locale.current), local.isAvailable {
             return local
+        }
+        if let spanish = SFSpeechRecognizer(locale: Locale(identifier: "es-MX")), spanish.isAvailable {
+            return spanish
         }
         if let fallback = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), fallback.isAvailable {
             return fallback
@@ -274,5 +287,12 @@ final class AudioCaptureService: NSObject, ObservableObject {
         return capturesDir
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("m4a")
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

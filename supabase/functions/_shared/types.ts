@@ -10,6 +10,7 @@ export type ParseExpenseRequest = {
   storage_object_path?: string;
   raw_text?: string;
   currency_hint?: string;
+  language_hint?: "en" | "es";
   allow_auto_save?: boolean;
   category_id?: string;
   trip_id?: string;

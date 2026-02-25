@@ -137,6 +137,35 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
 
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Voice / parser language")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                    Menu {
+                        ForEach(AppStore.supportedParsingLanguages, id: \.rawValue) { language in
+                            Button(language.title) { store.setParsingLanguage(language) }
+                        }
+                    } label: {
+                        HStack {
+                            Text(store.parsingLanguage.title)
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.faintText)
+                        }
+                        .foregroundStyle(AppTheme.ink)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color(uiColor: .separator).opacity(0.20), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 HStack(spacing: 10) {
                     MetricChip(title: "Voice / day", value: "50", tint: AppTheme.sky)
                     MetricChip(title: "Max length", value: "15s", tint: AppTheme.butter)

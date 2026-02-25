@@ -331,6 +331,7 @@ final class SharedAccessTokenStore: @unchecked Sendable {
 struct SupabaseAuthRESTClient {
     let config: SupabaseAppConfig
     var session: URLSession = .shared
+    private let webAuthBaseURLString = "https://speakance.vercel.app"
 
     func signIn(email: String, password: String) async throws -> UserSession {
         let url = try authURL(path: "token", queryItems: [URLQueryItem(name: "grant_type", value: "password")])
@@ -351,7 +352,11 @@ struct SupabaseAuthRESTClient {
         let url = try authURL(path: "signup")
         var request = makeJSONRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = try JSONEncoder().encode(["email": email, "password": password])
+        request.httpBody = try JSONEncoder().encode(SignUpRequestPayload(
+            email: email,
+            password: password,
+            emailRedirectTo: webAuthRedirectURL(path: "/auth/confirmed")?.absoluteString
+        ))
 
         let (data, response) = try await session.data(for: request)
         try validateHTTP(response: response, data: data)
@@ -374,7 +379,10 @@ struct SupabaseAuthRESTClient {
         let url = try authURL(path: "recover")
         var request = makeJSONRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = try JSONEncoder().encode(["email": email])
+        request.httpBody = try JSONEncoder().encode(PasswordResetRequestPayload(
+            email: email,
+            redirectTo: webAuthRedirectURL(path: "/auth/reset")?.absoluteString
+        ))
 
         let (data, response) = try await session.data(for: request)
         try validateHTTP(response: response, data: data)
@@ -416,6 +424,13 @@ struct SupabaseAuthRESTClient {
         return request
     }
 
+    private func webAuthRedirectURL(path: String) -> URL? {
+        guard var components = URLComponents(string: webAuthBaseURLString) else { return nil }
+        let normalizedPath = path.hasPrefix("/") ? path : "/" + path
+        components.path = normalizedPath
+        return components.url
+    }
+
     private func validateHTTP(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw AuthError.invalidResponse("Invalid HTTP response.")
@@ -430,6 +445,28 @@ struct SupabaseAuthRESTClient {
 
 struct SignUpResult {
     let session: UserSession?
+}
+
+private struct SignUpRequestPayload: Encodable {
+    let email: String
+    let password: String
+    let emailRedirectTo: String?
+
+    enum CodingKeys: String, CodingKey {
+        case email
+        case password
+        case emailRedirectTo = "email_redirect_to"
+    }
+}
+
+private struct PasswordResetRequestPayload: Encodable {
+    let email: String
+    let redirectTo: String?
+
+    enum CodingKeys: String, CodingKey {
+        case email
+        case redirectTo = "redirect_to"
+    }
 }
 
 private struct AuthSessionResponse: Decodable {

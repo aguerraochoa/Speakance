@@ -16,6 +16,7 @@ final class AppStore: ObservableObject {
     @Published var paymentMethods: [PaymentMethod] = []
     @Published var activeTripID: UUID?
     @Published var defaultCurrencyCode: String = "USD"
+    @Published var parsingLanguage: ParsingLanguage = .auto
 
     let networkMonitor: NetworkMonitor
     let audioCaptureService: AudioCaptureService
@@ -51,6 +52,8 @@ final class AppStore: ObservableObject {
         self.paymentMethods = persistedMeta.paymentMethods
         self.activeTripID = persistedMeta.activeTripID
         self.defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
+        self.parsingLanguage = Self.normalizedParsingLanguage(persistedMeta.parsingLanguage) ?? .auto
+        resolvedAudioCaptureService.setPreferredSpeechLocaleIdentifier(self.parsingLanguage.speechLocaleIdentifier)
 
         resolvedNetworkMonitor.onStatusChange = { [weak self] connected in
             guard let self else { return }
@@ -71,6 +74,8 @@ final class AppStore: ObservableObject {
     static let supportedCurrencyCodes = [
         "USD", "MXN", "EUR", "GBP", "CAD", "JPY", "BRL", "COP", "ARS", "CLP", "PEN"
     ]
+
+    static let supportedParsingLanguages: [ParsingLanguage] = [.auto, .english, .spanish]
 
     var activeTrip: TripRecord? {
         guard let activeTripID else { return nil }
@@ -173,6 +178,7 @@ final class AppStore: ObservableObject {
                     localAudioFilePath: queuedCaptures[index].localAudioFilePath,
                     rawText: rawText,
                     currencyHint: defaultCurrencyCode,
+                    languageHint: parsingLanguage.apiHint,
                     timezone: TimeZone.current.identifier,
                     tripID: queuedCaptures[index].tripID,
                     tripName: queuedCaptures[index].tripName,
@@ -375,6 +381,13 @@ final class AppStore: ObservableObject {
         defaultCurrencyCode = normalized
         persistMeta()
         scheduleMetadataSync()
+    }
+
+    func setParsingLanguage(_ language: ParsingLanguage) {
+        guard parsingLanguage != language else { return }
+        parsingLanguage = language
+        audioCaptureService.setPreferredSpeechLocaleIdentifier(language.speechLocaleIdentifier)
+        persistMeta()
     }
 
     func refreshCloudStateFromServer() async {
@@ -716,7 +729,8 @@ final class AppStore: ObservableObject {
             trips: trips,
             paymentMethods: paymentMethods,
             activeTripID: activeTripID,
-            defaultCurrencyCode: defaultCurrencyCode
+            defaultCurrencyCode: defaultCurrencyCode,
+            parsingLanguage: parsingLanguage.rawValue
         ))
     }
 
@@ -914,6 +928,11 @@ final class AppStore: ObservableObject {
         return normalized
     }
 
+    private static func normalizedParsingLanguage(_ raw: String?) -> ParsingLanguage? {
+        guard let raw else { return nil }
+        return ParsingLanguage(rawValue: raw)
+    }
+
     private static func detectCurrencyCode(in text: String) -> String? {
         let lower = text.lowercased()
         guard !lower.isEmpty else { return nil }
@@ -1016,6 +1035,36 @@ private enum AppError: LocalizedError {
     }
 }
 
+enum ParsingLanguage: String, Codable, CaseIterable {
+    case auto
+    case english
+    case spanish
+
+    var title: String {
+        switch self {
+        case .auto: return "Auto"
+        case .english: return "English"
+        case .spanish: return "Spanish"
+        }
+    }
+
+    var apiHint: String? {
+        switch self {
+        case .auto: return nil
+        case .english: return "en"
+        case .spanish: return "es"
+        }
+    }
+
+    var speechLocaleIdentifier: String? {
+        switch self {
+        case .auto: return nil
+        case .english: return "en-US"
+        case .spanish: return "es-MX"
+        }
+    }
+}
+
 private final class LocalMetaStore {
     struct Payload: Codable {
         var categories: [CategoryDefinition]
@@ -1023,6 +1072,7 @@ private final class LocalMetaStore {
         var paymentMethods: [PaymentMethod]
         var activeTripID: UUID?
         var defaultCurrencyCode: String?
+        var parsingLanguage: String?
     }
 
     private let key = "speakance.local-meta.v1"
@@ -1042,7 +1092,7 @@ private final class LocalMetaStore {
     func load() -> Payload {
         guard let data = UserDefaults.standard.data(forKey: key),
               let payload = try? decoder.decode(Payload.self, from: data) else {
-            return Payload(categories: [], trips: [], paymentMethods: [], activeTripID: nil, defaultCurrencyCode: nil)
+            return Payload(categories: [], trips: [], paymentMethods: [], activeTripID: nil, defaultCurrencyCode: nil, parsingLanguage: nil)
         }
         return payload
     }

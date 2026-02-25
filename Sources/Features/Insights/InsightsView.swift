@@ -26,9 +26,9 @@ struct InsightsView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .onChange(of: selectedTripID) { _ in selectedTrendSegment = nil }
-        .onChange(of: selectedPaymentMethodID) { _ in selectedTrendSegment = nil }
-        .onChange(of: selectedTrendYear) { _ in selectedTrendSegment = nil }
+        .onChange(of: selectedTripID) { selectedTrendSegment = nil }
+        .onChange(of: selectedPaymentMethodID) { selectedTrendSegment = nil }
+        .onChange(of: selectedTrendYear) { selectedTrendSegment = nil }
     }
 
     private var baseFilteredExpenses: [ExpenseRecord] {

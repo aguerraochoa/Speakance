@@ -801,6 +801,7 @@ private struct SupabaseParseExpenseRequestPayload: Encodable {
     let audioDurationSeconds: Int?
     let rawText: String
     let currencyHint: String?
+    let languageHint: String?
     let allowAutoSave: Bool
     let storageBucket: String?
     let storageObjectPath: String?
@@ -817,6 +818,7 @@ private struct SupabaseParseExpenseRequestPayload: Encodable {
         audioDurationSeconds = dto.audioDurationSeconds
         rawText = dto.rawText
         currencyHint = dto.currencyHint
+        languageHint = dto.languageHint
         allowAutoSave = true
         self.storageBucket = storageBucket
         self.storageObjectPath = storageObjectPath
@@ -834,6 +836,7 @@ private struct SupabaseParseExpenseRequestPayload: Encodable {
         case audioDurationSeconds = "audio_duration_seconds"
         case rawText = "raw_text"
         case currencyHint = "currency_hint"
+        case languageHint = "language_hint"
         case allowAutoSave = "allow_auto_save"
         case storageBucket = "storage_bucket"
         case storageObjectPath = "storage_object_path"
