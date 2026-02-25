@@ -8,3 +8,6 @@ Speakance.xcodeproj/project.xcworkspace/
 Speakance.xcodeproj/xcuserdata/
 supabase/.temp/
 supabase/.branches/
+web/node_modules/
+web/.next/
+web/.vercel/
