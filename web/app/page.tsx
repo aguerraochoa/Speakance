@@ -74,7 +74,7 @@ function LedgerPreview() {
         <div className="snapshotRow">
           <span className="snapshotDot" style={{ background: "#8B5CF6" }} />
           <div className="snapshotRowBody">
-            <div className="snapshotRowTitle">Entertainment · Club table</div>
+            <div className="snapshotRowTitle">Groceries · Whole Foods</div>
             <div className="snapshotRowMeta">Travel trip · 21 Feb · Voice</div>
           </div>
           <div className="snapshotAmount">US$200</div>
@@ -98,18 +98,21 @@ export default function HomePage() {
           <div className="landingHeroCopy">
             <div className="heroSignal">Voice-first expense tracking for iPhone</div>
             <h1>
-              Capture the expense.
+              Log expenses fast.
               <br />
-              Keep the signal.
+              Review them clearly.
             </h1>
             <p>
-              Speakance is built for fast capture and clean review. Record one expense at a time, keep a compact
-              ledger, and see monthly category trends without the clutter.
+              Speak or type one expense at a time, then review everything in a compact ledger built for quick
+              cleanup, filtering, and monthly spending insights.
             </p>
 
             <div className="landingActions">
-              <a className="landingBtn landingBtnPrimary" href="#" aria-disabled="true">
-                App Store • Coming Soon
+              <a
+                className="landingBtn landingBtnPrimary"
+                href="mailto:support@speakance.app?subject=Speakance%20Beta%20Access"
+              >
+                Request Beta Access
               </a>
               <Link className="landingBtn landingBtnGhost" href="/support">
                 Support
@@ -117,10 +120,10 @@ export default function HomePage() {
             </div>
 
             <div className="landingMicroProof">
-              <span>Voice + text</span>
+              <span>Voice + text capture</span>
               <span>Offline queue</span>
-              <span>Trip / Card / Month filters</span>
-              <span>Monthly category insights</span>
+              <span>Trip / card / month filters</span>
+              <span>Compact ledger review</span>
             </div>
           </div>
 
@@ -142,27 +145,27 @@ export default function HomePage() {
         <section className="landingBand">
           <div className="landingBandCard">
             <div className="bandKicker">Why it feels fast</div>
-            <div className="bandHeadline">Built around capture first, cleanup second.</div>
+            <div className="bandHeadline">Capture first, reconcile later.</div>
             <p>
-              The app is optimized for quick input in the moment, then bank-statement style review later with
-              compact saved views, card filters, and month slices.
+              Speakance is designed for real-world use: quick capture in the moment, then bank-statement style
+              review later with compact views and filters that reduce scrolling.
             </p>
           </div>
           <div className="landingBandMetrics">
             <div className="metricCell">
-              <div className="metricLabel">Capture modes</div>
+              <div className="metricLabel">Input</div>
               <div className="metricValue">Voice + Text</div>
             </div>
             <div className="metricCell">
-              <div className="metricLabel">Queue behavior</div>
+              <div className="metricLabel">Sync behavior</div>
               <div className="metricValue">Offline-ready</div>
             </div>
             <div className="metricCell">
-              <div className="metricLabel">Review style</div>
+              <div className="metricLabel">Review</div>
               <div className="metricValue">Compact ledger</div>
             </div>
             <div className="metricCell">
-              <div className="metricLabel">Insights view</div>
+              <div className="metricLabel">Insights</div>
               <div className="metricValue">Month + Year</div>
             </div>
           </div>
@@ -173,8 +176,8 @@ export default function HomePage() {
             <div className="panelEyebrow">Capture</div>
             <h2>Record in the moment</h2>
             <p>
-              Tap once, speak one expense, and send. When it is noisy, type it instead. Both routes go through
-              the same parsing and review pipeline.
+              Record one expense at a time by voice or text. Fast capture keeps the habit lightweight, even when
+              you are moving.
             </p>
           </article>
 
@@ -182,8 +185,8 @@ export default function HomePage() {
             <div className="panelEyebrow">Ledger</div>
             <h2>Reconcile with less scrolling</h2>
             <p>
-              Saved expenses can be filtered by trip, card, and month. Compact mode is designed so more entries
-              fit on screen for statement matching.
+              Filter saved expenses by trip, card, and month. Compact mode fits more rows on screen for statement
+              matching and cleanup.
             </p>
           </article>
 
@@ -191,8 +194,8 @@ export default function HomePage() {
             <div className="panelEyebrow">Insights</div>
             <h2>See totals and category patterns</h2>
             <p>
-              Monthly spending mix for current filters plus a year view with stacked category totals by month to
-              compare changes over time.
+              See category mix for the current month and compare patterns over time with yearly stacked totals by
+              month.
             </p>
           </article>
         </section>

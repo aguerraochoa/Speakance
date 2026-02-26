@@ -965,44 +965,6 @@ a {
   line-height: 1.45;
 }
 
-.landingUtility {
-  margin-top: 16px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.landingUtilityPanel {
-  border-radius: 22px;
-  border: 1px solid rgba(8, 22, 54, 0.06);
-  background: rgba(255, 255, 255, 0.82);
-  padding: 20px;
-  backdrop-filter: blur(12px);
-}
-
-.landingUtilityPanel h2 {
-  margin: 10px 0 10px;
-  font-size: 20px;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-
-.landingUtilityPanel ul {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.landingUtilityPanel li + li {
-  margin-top: 4px;
-}
-
-.landingUtilityPanel a {
-  color: #3144d9;
-  font-weight: 600;
-}
-
 .landingFooter {
   margin-top: 16px;
   border-radius: 18px;
@@ -1054,8 +1016,7 @@ a {
     min-height: 0;
   }
 
-  .landingBand,
-  .landingUtility {
+  .landingBand {
     grid-template-columns: 1fr;
   }
 
