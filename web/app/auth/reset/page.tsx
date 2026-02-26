@@ -17,6 +17,11 @@ function parseHashParams(hash: string): URLSearchParams {
   return new URLSearchParams(trimmed);
 }
 
+function parseQueryParams(search: string): URLSearchParams {
+  const trimmed = search.startsWith("?") ? search.slice(1) : search;
+  return new URLSearchParams(trimmed);
+}
+
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -44,14 +49,11 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      const hash = window.location.hash;
-      const params = parseHashParams(hash);
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
-      const type = params.get("type");
+      const searchParams = parseQueryParams(window.location.search);
+      const hashParams = parseHashParams(window.location.hash);
+      const type = hashParams.get("type") ?? searchParams.get("type");
 
-      // Supabase recovery links usually include recovery tokens in the hash.
-      if (!accessToken || !refreshToken || type !== "recovery") {
+      if (type !== "recovery") {
         if (!cancelled) {
           setViewState("missing_link");
           setMessage("Open this page from the password reset email link to set a new password.");
@@ -59,10 +61,30 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      const { error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken
-      });
+      const code = searchParams.get("code");
+      let error: Error | null = null;
+
+      if (code) {
+        const result = await supabase.auth.exchangeCodeForSession(code);
+        error = result.error;
+      } else {
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+
+        if (!accessToken || !refreshToken) {
+          if (!cancelled) {
+            setViewState("missing_link");
+            setMessage("Open this page from the password reset email link to set a new password.");
+          }
+          return;
+        }
+
+        const result = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+        error = result.error;
+      }
 
       if (cancelled) return;
 

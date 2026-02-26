@@ -27,6 +27,7 @@ final class AppStore: ObservableObject {
     private let syncEngine = SyncEngine()
     private let metaStore = LocalMetaStore()
     private var isSyncingMetadata = false
+    private var metadataSyncDirty = false
 
     init(
         queueStore: QueueStoreProtocol = FileQueueStore(),
@@ -289,9 +290,12 @@ final class AppStore: ObservableObject {
                 do {
                     try await apiClient.updateExpense(UpdateExpenseRequestDTO(expenseID: expenseID, draft: context.draft))
                 } catch {
-                    #if DEBUG
-                    print("[Speakance] remote expense update failed id=\(expenseID.uuidString): \(error.localizedDescription)")
-                    #endif
+                    await MainActor.run {
+                        lastOperationalErrorMessage = "Could not update expense on server. Local changes were kept."
+                        #if DEBUG
+                        print("[Speakance] remote expense update failed id=\(expenseID.uuidString): \(error.localizedDescription)")
+                        #endif
+                    }
                 }
             }
         }
@@ -506,6 +510,7 @@ final class AppStore: ObservableObject {
         }
         persistExpenses()
         persistMeta()
+        scheduleMetadataSync()
     }
 
     func tripTotal(_ tripID: UUID?) -> Decimal {
@@ -745,6 +750,7 @@ final class AppStore: ObservableObject {
     }
 
     private func scheduleMetadataSync() {
+        metadataSyncDirty = true
         Task { await syncMetadataToServerIfPossible() }
     }
 
@@ -753,17 +759,20 @@ final class AppStore: ObservableObject {
         guard !isSyncingMetadata else { return }
         isSyncingMetadata = true
         defer { isSyncingMetadata = false }
-        let snapshot = UserMetadataSyncSnapshotDTO(
-            categories: categoryDefinitions,
-            trips: trips,
-            paymentMethods: paymentMethods,
-            activeTripID: activeTripID,
-            defaultCurrencyCode: defaultCurrencyCode
-        )
-        do {
-            try await apiClient.syncMetadata(snapshot)
-        } catch {
-            logOperationalError("Metadata sync failed", details: ["error": error.localizedDescription])
+        while isConnected && metadataSyncDirty {
+            metadataSyncDirty = false
+            let snapshot = UserMetadataSyncSnapshotDTO(
+                categories: categoryDefinitions,
+                trips: trips,
+                paymentMethods: paymentMethods,
+                activeTripID: activeTripID,
+                defaultCurrencyCode: defaultCurrencyCode
+            )
+            do {
+                try await apiClient.syncMetadata(snapshot)
+            } catch {
+                logOperationalError("Metadata sync failed", details: ["error": error.localizedDescription])
+            }
         }
     }
 

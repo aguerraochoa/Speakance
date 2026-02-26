@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import AmbientParticles from "./components/AmbientParticles";
+import AuthRedirectBridge from "./components/AuthRedirectBridge";
 
 function LandingNav() {
   return (
@@ -86,6 +87,7 @@ function LedgerPreview() {
 export default function HomePage() {
   return (
     <main className="landingRoot">
+      <AuthRedirectBridge />
       <div className="landingBackdrop" aria-hidden="true" />
       <AmbientParticles />
 
@@ -195,38 +197,6 @@ export default function HomePage() {
           </article>
         </section>
 
-        <section className="landingUtility">
-          <div className="landingUtilityPanel">
-            <div className="panelEyebrow">For App Store Connect</div>
-            <h2>Ready-made support and policy routes</h2>
-            <ul>
-              <li>
-                <Link href="/support">/support</Link> for your Support URL
-              </li>
-              <li>
-                <Link href="/privacy">/privacy</Link> for your Privacy Policy URL
-              </li>
-              <li>
-                <Link href="/terms">/terms</Link> for Terms of Use
-              </li>
-            </ul>
-          </div>
-
-          <div className="landingUtilityPanel">
-            <div className="panelEyebrow">For Supabase Auth</div>
-            <h2>Email confirmation and reset pages are included</h2>
-            <ul>
-              <li>
-                <Link href="/auth/confirmed">/auth/confirmed</Link> for signup confirmation landing
-              </li>
-              <li>
-                <Link href="/auth/reset">/auth/reset</Link> for password recovery completion
-              </li>
-              <li>Whitelist your deployed domain in Supabase Redirect URLs</li>
-            </ul>
-          </div>
-        </section>
-
         <footer className="landingFooter">
           <div className="landingFooterBrand">
             <Image src="/brand/app-icon.png" alt="" width={20} height={20} />
@@ -236,8 +206,6 @@ export default function HomePage() {
             <Link href="/support">Support</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>
-            <Link href="/auth/confirmed">Email Confirmed</Link>
-            <Link href="/auth/reset">Reset Password</Link>
           </div>
         </footer>
       </div>

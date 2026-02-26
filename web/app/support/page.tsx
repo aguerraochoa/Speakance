@@ -32,7 +32,7 @@ export default function SupportPage() {
         <ul>
           <li>If password reset email does not arrive, check spam/junk and confirm the email is typed correctly.</li>
           <li>Voice capture requires microphone access and (optionally) Speech Recognition access on iPhone.</li>
-          <li>You can always review and edit parsed expenses before saving.</li>
+          <li>Some captures may be auto-saved when parsing confidence is high; you can still edit saved expenses in the ledger.</li>
         </ul>
 
         <h2>Account recovery</h2>

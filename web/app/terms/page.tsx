@@ -20,11 +20,11 @@ export default function TermsPage() {
       <section className="panel docCard">
         <div className="eyebrow">Terms of Use</div>
         <h1>Speakance Terms of Use</h1>
-        <p>Last updated: February 24, 2026</p>
+        <p>Last updated: February 25, 2026</p>
 
         <p>
-          This is a starter Terms page for Speakance. Replace this with your final legal terms before public
-          release. The text below is not legal advice.
+          These Terms of Use govern your use of Speakance, including the iOS app and related web pages.
+          By using Speakance, you agree to these terms.
         </p>
 
         <h2>Use of the app</h2>
@@ -45,13 +45,32 @@ export default function TermsPage() {
           correct entries as needed.
         </p>
 
+        <h2>Acceptable use</h2>
+        <p>
+          You agree not to use Speakance to violate applicable law, interfere with service operation, attempt
+          unauthorized access, or abuse usage limits.
+        </p>
+
         <h2>Availability</h2>
         <p>
           The service may change, be interrupted, or be updated over time. Features may vary by version.
         </p>
 
+        <h2>Termination</h2>
+        <p>
+          We may suspend or terminate access to the service if required for security, abuse prevention, legal
+          compliance, or service maintenance.
+        </p>
+
+        <h2>Disclaimer and limitation</h2>
+        <p>
+          Speakance is provided on an "as is" and "as available" basis. To the maximum extent permitted by law,
+          we disclaim warranties and are not liable for indirect, incidental, or consequential damages arising
+          from use of the service.
+        </p>
+
         <h2>Contact</h2>
-        <p>Add your support/legal contact information here.</p>
+        <p>Questions about these terms: <a href="mailto:support@speakance.app">support@speakance.app</a>.</p>
       </section>
     </main>
   );

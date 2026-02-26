@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 @MainActor
 final class AuthStore: ObservableObject {
@@ -24,7 +25,10 @@ final class AuthStore: ObservableObject {
 
     init(
         client: SupabaseAuthRESTClient?,
-        sessionStorage: AuthSessionStorage = UserDefaultsAuthSessionStorage(),
+        sessionStorage: AuthSessionStorage = MigratingAuthSessionStorage(
+            primary: KeychainAuthSessionStorage(),
+            legacy: UserDefaultsAuthSessionStorage()
+        ),
         tokenStore: SharedAccessTokenStore
     ) {
         self.client = client
@@ -308,6 +312,80 @@ struct UserDefaultsAuthSessionStorage: AuthSessionStorage {
 
     func clear() {
         UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
+struct KeychainAuthSessionStorage: AuthSessionStorage {
+    private let service = "com.speakance.auth"
+    private let account = "session.v1"
+
+    func load() -> UserSession? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(UserSession.self, from: data)
+    }
+
+    func save(_ session: UserSession) {
+        guard let data = try? JSONEncoder().encode(session) else { return }
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+
+        var addQuery = baseQuery
+        addQuery[kSecValueData as String] = data
+#if os(iOS)
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+#endif
+
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        if addStatus == errSecDuplicateItem {
+            let attributes = [kSecValueData as String: data] as CFDictionary
+            _ = SecItemUpdate(baseQuery as CFDictionary, attributes)
+        }
+    }
+
+    func clear() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+struct MigratingAuthSessionStorage: AuthSessionStorage {
+    let primary: AuthSessionStorage
+    let legacy: AuthSessionStorage
+
+    func load() -> UserSession? {
+        if let session = primary.load() {
+            return session
+        }
+        guard let legacySession = legacy.load() else { return nil }
+        primary.save(legacySession)
+        legacy.clear()
+        return legacySession
+    }
+
+    func save(_ session: UserSession) {
+        primary.save(session)
+        legacy.clear()
+    }
+
+    func clear() {
+        primary.clear()
+        legacy.clear()
     }
 }
 

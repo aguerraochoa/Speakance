@@ -166,6 +166,9 @@ type ParseOutcome = {
 };
 
 Deno.serve(async (req) => {
+  let cleanupClient: ReturnType<typeof createClient> | null = null;
+  let cleanupBody: ParseExpenseRequest | null = null;
+  let cleanupUserID: string | null = null;
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -186,6 +189,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const bearerToken = authHeader.replace(/^Bearer\s+/i, "").trim();
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+    cleanupClient = adminClient;
     if (!bearerToken) {
       return json(
         { status: "error", error: "Unauthorized" } satisfies ParseExpenseResponse,
@@ -201,8 +205,10 @@ Deno.serve(async (req) => {
       );
     }
     const user = authData.user;
+    cleanupUserID = user.id;
 
     const body = (await req.json()) as ParseExpenseRequest;
+    cleanupBody = body;
     const validationError = validateRequest(body);
     if (validationError) {
       return json(
@@ -258,26 +264,35 @@ Deno.serve(async (req) => {
       );
     }
 
-    const aiOutcome = await parseExpenseWithOpenAI({
-      apiKey: openAiApiKey,
-      rawText,
-      capturedAtDevice: body.captured_at_device,
+    const deterministic = parseExpenseDeterministically(rawText, {
       currencyHint: body.currency_hint,
-      languageHint: body.language_hint,
       defaultCurrency: profile?.default_currency ?? undefined,
+      capturedAtDevice: body.captured_at_device,
       categoryContext: parserCategoryContext,
     });
 
     let outcome: ParseOutcome;
-    if (aiOutcome) {
-      outcome = aiOutcome;
-    } else {
-      const deterministic = parseExpenseDeterministically(rawText, {
-        currencyHint: body.currency_hint,
-        defaultCurrency: profile?.default_currency ?? undefined,
+    if (shouldUseAiFallback(deterministic)) {
+      const aiOutcome = await parseExpenseWithOpenAI({
+        apiKey: openAiApiKey,
+        rawText,
         capturedAtDevice: body.captured_at_device,
+        currencyHint: body.currency_hint,
+        languageHint: body.language_hint,
+        defaultCurrency: profile?.default_currency ?? undefined,
         categoryContext: parserCategoryContext,
       });
+      if (aiOutcome) {
+        outcome = aiOutcome;
+      } else {
+        outcome = {
+          parsed: deterministic.parsed,
+          confidence: deterministic.confidence,
+          provider: "deterministic",
+          model: "rules-v1",
+        };
+      }
+    } else {
       outcome = {
         parsed: deterministic.parsed,
         confidence: deterministic.confidence,
@@ -351,8 +366,6 @@ Deno.serve(async (req) => {
       estimated_cost_usd: outcome.provider === "openai" ? null : 0,
     });
 
-    await deleteUploadedVoiceCaptureIfPresent(adminClient, body);
-
     const response: ParseExpenseResponse = {
       status: needsReview ? "needs_review" : "saved",
       expense: savedExpense,
@@ -371,6 +384,10 @@ Deno.serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return json({ status: "error", error: message } satisfies ParseExpenseResponse, 500);
+  } finally {
+    if (cleanupClient && cleanupBody && cleanupUserID) {
+      await deleteUploadedVoiceCaptureIfPresent(cleanupClient, cleanupBody, cleanupUserID);
+    }
   }
 });
 
@@ -473,10 +490,12 @@ async function transcribeVoiceCaptureFromStorage(opts: {
 async function deleteUploadedVoiceCaptureIfPresent(
   adminClient: ReturnType<typeof createClient>,
   body: ParseExpenseRequest,
+  userID: string,
 ) {
   if (body.source !== "voice") return;
   const objectPath = body.storage_object_path?.trim();
   if (!objectPath) return;
+  if (!objectPath.startsWith(`${userID}/`)) return;
 
   const bucket = body.storage_bucket?.trim() || VOICE_CAPTURES_BUCKET;
   const { error } = await adminClient.storage.from(bucket).remove([objectPath]);
