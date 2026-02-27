@@ -257,7 +257,7 @@ struct FeedView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(item.rawText ?? "Voice capture")
+                    Text(queueDisplayText(for: item))
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(AppTheme.ink)
                         .lineLimit(2)
@@ -284,6 +284,18 @@ struct FeedView: View {
                 QueueBadge(status: item.status)
             }
         }
+    }
+
+    private func queueDisplayText(for item: QueuedCapture) -> String {
+        let parsedRawText = item.parsedDraft?.rawText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !parsedRawText.isEmpty {
+            return parsedRawText
+        }
+        let localRawText = item.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !localRawText.isEmpty {
+            return localRawText
+        }
+        return "Voice capture"
     }
 
     @ViewBuilder
