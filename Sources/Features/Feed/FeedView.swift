@@ -7,6 +7,9 @@ struct FeedView: View {
     @State private var selectedCardFilter: SavedCardFilter = .all
     @State private var selectedMonthFilter: SavedMonthFilter = .currentMonth
     @State private var savedLayout: SavedExpenseLayout = .cards
+    @State private var toastMessage: String?
+    @State private var toastUndoExpenseID: UUID?
+    @State private var toastDismissTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { proxy in
@@ -19,6 +22,9 @@ struct FeedView: View {
                         if selectedMode == .saved {
                             savedFiltersBar
                             expensesSection
+                            if !store.recentlyDeletedExpenses.isEmpty {
+                                recentlyDeletedSection
+                            }
                         }
 
                         if selectedMode == .queue {
@@ -55,6 +61,12 @@ struct FeedView: View {
                 }
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
+
+                if let toastMessage {
+                    toastBanner(toastMessage, bottomInset: proxy.safeAreaInsets.bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(5)
+                }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -204,6 +216,7 @@ struct FeedView: View {
                     },
                     onDelete: {
                         store.deleteQueueItem(item)
+                        showToast("Queue item deleted.", undoExpenseID: nil)
                     }
                 ) {
                     queueRow(item)
@@ -233,12 +246,67 @@ struct FeedView: View {
                 ForEach(filteredExpenses) { expense in
                     SwipeRevealExpenseRow(
                         onTap: { store.openReview(for: expense) },
-                        onDelete: { store.deleteExpense(expense) }
+                        onDelete: {
+                            store.deleteExpense(expense)
+                            showToast("Expense moved to Recently Deleted.", undoExpenseID: expense.id)
+                        }
                     ) {
                         if savedLayout == .cards {
                             expenseRow(expense)
                         } else {
                             compactExpenseRow(expense)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var recentlyDeletedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(
+                title: "Recently Deleted",
+                subtitle: "Items are kept for 30 days",
+                trailing: "\(store.recentlyDeletedExpenses.count)"
+            )
+
+            ForEach(store.recentlyDeletedExpenses) { entry in
+                SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(entry.expense.category)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AppTheme.ink)
+                                Text(entry.expense.description ?? entry.expense.rawText ?? "Deleted expense")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(AppTheme.muted)
+                                    .lineLimit(2)
+                            }
+                            Spacer(minLength: 8)
+                            Text(CurrencyFormatter.string(entry.expense.amount, currency: entry.expense.currency))
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundStyle(AppTheme.ink)
+                        }
+
+                        HStack {
+                            Text("Deleted \(entry.deletedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(AppTheme.faintText)
+                            Spacer()
+                            Button("Delete Now") {
+                                store.permanentlyDeleteRecentlyDeletedExpense(entry.id)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(AppTheme.error)
+
+                            Button("Restore") {
+                                store.restoreRecentlyDeletedExpense(entry.id)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(AppTheme.accent)
                         }
                     }
                 }
@@ -509,6 +577,63 @@ struct FeedView: View {
             return store.trips.first(where: { $0.id == id })?.name ?? "Unknown"
         }
     }
+
+    @ViewBuilder
+    private func toastBanner(_ message: String, bottomInset: CGFloat) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(AppTheme.success)
+                Text(message)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(AppTheme.ink)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                if let undoExpenseID = toastUndoExpenseID {
+                    Button("Undo") {
+                        store.restoreRecentlyDeletedExpense(undoExpenseID)
+                        dismissToast()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(AppTheme.accent)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(uiColor: .separator).opacity(0.22), lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, max(12, bottomInset + 58))
+        }
+    }
+
+    private func showToast(_ message: String, undoExpenseID: UUID?) {
+        toastDismissTask?.cancel()
+        toastUndoExpenseID = undoExpenseID
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+            toastMessage = message
+        }
+        toastDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                dismissToast()
+            }
+        }
+    }
+
+    private func dismissToast() {
+        withAnimation(.easeOut(duration: 0.18)) {
+            toastMessage = nil
+            toastUndoExpenseID = nil
+        }
+    }
 }
 
 private enum FeedMode: CaseIterable {
@@ -631,32 +756,58 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
     private let rowCornerRadius: CGFloat = 20
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            deleteBackground
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .leading) {
+                deleteBackground
 
-            content()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    guard !deleting else { return }
-                    if revealedOffset > 0 {
-                        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                content()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !deleting else { return }
+                        if revealedOffset > 0 {
+                            withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+                                revealedOffset = 0
+                            }
+                        } else {
+                            onTap()
+                        }
+                    }
+                    .offset(x: currentOffset)
+                    .simultaneousGesture(dragGesture)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear { rowWidth = proxy.size.width }
+                                .onChange(of: proxy.size.width) { _, newValue in
+                                    rowWidth = newValue
+                                }
+                        }
+                    )
+            }
+
+            if revealedOffset > 0, !deleting {
+                HStack {
+                    Spacer()
+                    Button(role: .destructive) {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
                             revealedOffset = 0
                         }
-                    } else {
-                        onTap()
+                        onDelete()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Delete")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                 }
-                .offset(x: currentOffset)
-                .simultaneousGesture(dragGesture)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear
-                            .onAppear { rowWidth = proxy.size.width }
-                            .onChange(of: proxy.size.width) { _, newValue in
-                                rowWidth = newValue
-                            }
-                    }
-                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
     }
 
@@ -685,22 +836,6 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
             .onEnded { value in
                 guard !deleting else { return }
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let fullSwipeThreshold = max(actionWidth * 1.6, min(220, rowWidth * 0.52))
-                let projected = max(value.translation.width, value.predictedEndTranslation.width)
-                if projected >= fullSwipeThreshold {
-                    let startOffset = max(currentOffset, actionWidth)
-                    revealedOffset = actionWidth
-                    deleteTravelOffset = startOffset
-                    let target = max((rowWidth > 0 ? rowWidth : 320) + 28, actionWidth + 40)
-                    deleting = true
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        deleteTravelOffset = target
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-                        onDelete()
-                    }
-                    return
-                }
                 let proposed = min(max(0, revealedOffset + value.translation.width), actionWidth)
                 withAnimation(.interactiveSpring(response: 0.2, dampingFraction: 0.92, blendDuration: 0.05)) {
                     revealedOffset = proposed > actionWidth * 0.33 ? actionWidth : 0
@@ -743,20 +878,7 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
             }
         }
         .overlay(alignment: .leading) {
-            // Tap-to-delete when revealed but not full-swiped.
-            if currentOffset > 8 {
-                Color.clear
-                    .frame(width: min(actionWidth, max(0, currentOffset)))
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard !deleting else { return }
-                        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                            revealedOffset = 0
-                        }
-                        onDelete()
-                    }
-            }
+            EmptyView()
         }
     }
 }

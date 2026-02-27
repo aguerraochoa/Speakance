@@ -260,6 +260,20 @@ struct ReviewContext: Identifiable, Equatable, Sendable {
     }
 }
 
+struct RecentlyDeletedExpenseEntry: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var expense: ExpenseRecord
+    var queueEntries: [QueuedCapture]
+    var deletedAt: Date
+
+    init(expense: ExpenseRecord, queueEntries: [QueuedCapture], deletedAt: Date = .now) {
+        self.id = expense.id
+        self.expense = expense
+        self.queueEntries = queueEntries
+        self.deletedAt = deletedAt
+    }
+}
+
 enum AppTab: Hashable {
     case capture
     case feed

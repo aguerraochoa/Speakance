@@ -17,6 +17,7 @@ final class AppStore: ObservableObject {
     @Published var activeTripID: UUID?
     @Published var defaultCurrencyCode: String = "USD"
     @Published var parsingLanguage: ParsingLanguage = .auto
+    @Published var recentlyDeletedExpenses: [RecentlyDeletedExpenseEntry] = []
 
     let networkMonitor: NetworkMonitor
     let audioCaptureService: AudioCaptureService
@@ -26,6 +27,7 @@ final class AppStore: ObservableObject {
     private let apiClient: ExpenseAPIClientProtocol
     private let syncEngine = SyncEngine()
     private let metaStore = LocalMetaStore()
+    private let recentlyDeletedStore = LocalRecentlyDeletedStore()
     private var isSyncingMetadata = false
     private var metadataSyncDirty = false
 
@@ -54,7 +56,9 @@ final class AppStore: ObservableObject {
         self.activeTripID = persistedMeta.activeTripID
         self.defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
         self.parsingLanguage = Self.normalizedParsingLanguage(persistedMeta.parsingLanguage) ?? .auto
+        self.recentlyDeletedExpenses = recentlyDeletedStore.load()
         resolvedAudioCaptureService.setPreferredSpeechLocaleIdentifier(self.parsingLanguage.speechLocaleIdentifier)
+        purgeExpiredRecentlyDeletedExpenses()
 
         resolvedNetworkMonitor.onStatusChange = { [weak self] connected in
             guard let self else { return }
@@ -332,13 +336,15 @@ final class AppStore: ObservableObject {
     }
 
     func deleteExpense(_ expense: ExpenseRecord) {
-        let removed = expense
-        let originalIndex = expenses.firstIndex(where: { $0.id == expense.id })
         let removedQueueEntries = queuedCaptures
             .enumerated()
             .filter { _, item in
                 item.clientExpenseID == expense.clientExpenseID || item.serverExpenseID == expense.id
             }
+        let snapshot = RecentlyDeletedExpenseEntry(
+            expense: expense,
+            queueEntries: removedQueueEntries.map(\.element)
+        )
 
         expenses.removeAll { $0.id == expense.id }
         persistExpenses()
@@ -347,36 +353,47 @@ final class AppStore: ObservableObject {
             queuedCaptures.removeAll { removedQueueIDs.contains($0.id) }
             persistQueue()
         }
+        for entry in removedQueueEntries {
+            cleanupLocalAudioFileIfNeeded(for: entry.element)
+        }
+        addRecentlyDeleted(snapshot)
+    }
 
+    func restoreRecentlyDeletedExpense(_ expenseID: UUID) {
+        guard let idx = recentlyDeletedExpenses.firstIndex(where: { $0.id == expenseID }) else { return }
+        let entry = recentlyDeletedExpenses.remove(at: idx)
+
+        if !expenses.contains(where: { $0.id == entry.expense.id }) {
+            expenses.insert(entry.expense, at: 0)
+            persistExpenses()
+        }
+
+        if !entry.queueEntries.isEmpty {
+            var didRestoreQueue = false
+            for queueEntry in entry.queueEntries {
+                guard !queuedCaptures.contains(where: { $0.id == queueEntry.id }) else { continue }
+                queuedCaptures.insert(queueEntry, at: 0)
+                didRestoreQueue = true
+            }
+            if didRestoreQueue {
+                persistQueue()
+            }
+        }
+        persistRecentlyDeletedExpenses()
+    }
+
+    func permanentlyDeleteRecentlyDeletedExpense(_ expenseID: UUID) {
+        guard let entry = recentlyDeletedExpenses.first(where: { $0.id == expenseID }) else { return }
+        recentlyDeletedExpenses.removeAll { $0.id == expenseID }
+        persistRecentlyDeletedExpenses()
         Task { [apiClient] in
             do {
-                try await apiClient.deleteExpense(expense.id)
-                await MainActor.run {
-                    for entry in removedQueueEntries {
-                        cleanupLocalAudioFileIfNeeded(for: entry.element)
-                    }
-                }
+                try await apiClient.deleteExpense(entry.expense.id)
             } catch {
-                #if DEBUG
-                print("[Speakance] remote expense delete failed id=\(expense.id.uuidString): \(error.localizedDescription)")
-                #endif
                 await MainActor.run {
-                    if let originalIndex, !expenses.contains(where: { $0.id == removed.id }) {
-                        let insertIndex = min(max(0, originalIndex), expenses.count)
-                        expenses.insert(removed, at: insertIndex)
-                    } else if !expenses.contains(where: { $0.id == removed.id }) {
-                        expenses.insert(removed, at: 0)
-                    }
-                    persistExpenses()
-                    if !removedQueueEntries.isEmpty {
-                        for entry in removedQueueEntries.sorted(by: { $0.offset < $1.offset }) {
-                            guard !queuedCaptures.contains(where: { $0.id == entry.element.id }) else { continue }
-                            let insertIndex = min(max(0, entry.offset), queuedCaptures.count)
-                            queuedCaptures.insert(entry.element, at: insertIndex)
-                        }
-                        persistQueue()
-                    }
-                    lastOperationalErrorMessage = "Could not delete expense on server. Restored locally."
+                    recentlyDeletedExpenses.insert(entry, at: 0)
+                    persistRecentlyDeletedExpenses()
+                    lastOperationalErrorMessage = "Could not permanently delete expense on server."
                 }
             }
         }
@@ -746,6 +763,30 @@ final class AppStore: ObservableObject {
         ))
     }
 
+    private func addRecentlyDeleted(_ entry: RecentlyDeletedExpenseEntry) {
+        recentlyDeletedExpenses.removeAll { $0.id == entry.id }
+        recentlyDeletedExpenses.insert(entry, at: 0)
+        purgeExpiredRecentlyDeletedExpenses()
+        persistRecentlyDeletedExpenses()
+    }
+
+    private func purgeExpiredRecentlyDeletedExpenses() {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
+        let expired = recentlyDeletedExpenses.filter { $0.deletedAt < cutoff }
+        recentlyDeletedExpenses.removeAll { $0.deletedAt < cutoff }
+        persistRecentlyDeletedExpenses()
+        guard !expired.isEmpty else { return }
+        Task { [apiClient] in
+            for entry in expired {
+                try? await apiClient.deleteExpense(entry.expense.id)
+            }
+        }
+    }
+
+    private func persistRecentlyDeletedExpenses() {
+        recentlyDeletedStore.save(recentlyDeletedExpenses)
+    }
+
     private func handleNetworkConnectivityChange(_ isConnected: Bool) {
         self.isConnected = isConnected
         if isConnected {
@@ -809,8 +850,10 @@ final class AppStore: ObservableObject {
         guard isConnected else { return }
         do {
             let remoteExpenses = try await apiClient.fetchExpenses()
-            if !remoteExpenses.isEmpty || expenses.isEmpty {
-                expenses = Self.deduplicatedExpenses(remoteExpenses)
+            let hiddenIDs = Set(recentlyDeletedExpenses.map(\.id))
+            let visibleRemoteExpenses = remoteExpenses.filter { !hiddenIDs.contains($0.id) }
+            if !visibleRemoteExpenses.isEmpty || expenses.isEmpty {
+                expenses = Self.deduplicatedExpenses(visibleRemoteExpenses)
                 persistExpenses()
             }
         } catch {
@@ -1145,6 +1188,35 @@ private final class LocalMetaStore {
     }
 
     func save(_ payload: Payload) {
+        guard let data = try? encoder.encode(payload) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
+private final class LocalRecentlyDeletedStore {
+    private let key = "speakance.recently-deleted-expenses.v1"
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+
+    init() {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+    }
+
+    func load() -> [RecentlyDeletedExpenseEntry] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let payload = try? decoder.decode([RecentlyDeletedExpenseEntry].self, from: data) else {
+            return []
+        }
+        return payload
+    }
+
+    func save(_ payload: [RecentlyDeletedExpenseEntry]) {
         guard let data = try? encoder.encode(payload) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
