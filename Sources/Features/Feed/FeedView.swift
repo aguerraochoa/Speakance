@@ -213,14 +213,16 @@ struct FeedView: View {
     }
 
     private var expensesSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let filteredExpenses = filteredSavedExpenses
+
+        return VStack(alignment: .leading, spacing: 10) {
             SectionHeader(
                 title: "Saved Expenses",
                 subtitle: savedLayout == .cards ? "Tap any expense to edit" : "Compact list view",
-                trailing: "\(filteredSavedExpenses.count)"
+                trailing: "\(filteredExpenses.count)"
             )
 
-            if filteredSavedExpenses.isEmpty {
+            if filteredExpenses.isEmpty {
                 SpeakCard(padding: 16, cornerRadius: 20) {
                     Text("No saved expenses match the current card/month filters.")
                         .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -228,7 +230,7 @@ struct FeedView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
-                ForEach(filteredSavedExpenses) { expense in
+                ForEach(filteredExpenses) { expense in
                     SwipeRevealExpenseRow(
                         onTap: { store.openReview(for: expense) },
                         onDelete: { store.deleteExpense(expense) }
@@ -645,7 +647,7 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
                     }
                 }
                 .offset(x: currentOffset)
-                .highPriorityGesture(dragGesture)
+                .simultaneousGesture(dragGesture)
                 .background(
                     GeometryReader { proxy in
                         Color.clear
@@ -672,10 +674,12 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .local)
+        DragGesture(minimumDistance: 16, coordinateSpace: .local)
             .updating($dragTranslation) { value, state, _ in
                 guard !deleting else { return }
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                guard horizontal > 8, horizontal > vertical else { return }
                 state = value.translation.width
             }
             .onEnded { value in
@@ -742,7 +746,8 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
             // Tap-to-delete when revealed but not full-swiped.
             if currentOffset > 8 {
                 Color.clear
-                    .frame(width: min(actionWidth, max(0, currentOffset)), height: nil)
+                    .frame(width: min(actionWidth, max(0, currentOffset)))
+                    .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         guard !deleting else { return }

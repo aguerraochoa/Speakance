@@ -284,11 +284,18 @@ final class AppStore: ObservableObject {
     }
 
     func saveReview(_ context: ReviewContext) {
-        saveParsedDraft(context.draft, queueID: context.queueID, existingExpenseID: context.expenseID, markAsEdited: true)
+        var normalizedDraft = context.draft
+        normalizedDraft.amountText = Self.normalizedAmountText(normalizedDraft.amountText)
+        normalizedDraft.rawText = Self.rewrittenRawAmountText(
+            in: normalizedDraft.rawText,
+            amountText: normalizedDraft.amountText
+        )
+
+        saveParsedDraft(normalizedDraft, queueID: context.queueID, existingExpenseID: context.expenseID, markAsEdited: true)
         if let expenseID = context.expenseID {
             Task { [apiClient] in
                 do {
-                    try await apiClient.updateExpense(UpdateExpenseRequestDTO(expenseID: expenseID, draft: context.draft))
+                    try await apiClient.updateExpense(UpdateExpenseRequestDTO(expenseID: expenseID, draft: normalizedDraft))
                 } catch {
                     await MainActor.run {
                         lastOperationalErrorMessage = "Could not update expense on server. Local changes were kept."
@@ -678,7 +685,7 @@ final class AppStore: ObservableObject {
         }
 
         guard Self.containsLikelyDateCue(in: lower) else { return }
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else { return }
+        guard let detector = Self.dateDetector else { return }
         let range = NSRange(sourceText.startIndex..<sourceText.endIndex, in: sourceText)
         let matches = detector.matches(in: sourceText, options: [], range: range)
         guard let date = matches.compactMap(\.date).first else { return }
@@ -975,6 +982,37 @@ final class AppStore: ObservableObject {
 }
 
 private extension AppStore {
+    static func normalizedAmountText(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return raw }
+        let candidate = trimmed.replacingOccurrences(of: ",", with: ".")
+        guard let decimal = Decimal(string: candidate) else { return trimmed }
+        return NSDecimalNumber(decimal: decimal).stringValue
+    }
+
+    static func rewrittenRawAmountText(in rawText: String, amountText: String) -> String {
+        let trimmedRaw = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAmount = amountText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRaw.isEmpty, !trimmedAmount.isEmpty else { return rawText }
+        guard trimmedRaw.caseInsensitiveCompare("Voice capture") != .orderedSame else { return rawText }
+
+        guard let regex = try? NSRegularExpression(
+            pattern: #"\d{1,3}(?:[,\.\s]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?"#
+        ) else { return rawText }
+
+        let range = NSRange(trimmedRaw.startIndex..<trimmedRaw.endIndex, in: trimmedRaw)
+        guard let firstMatch = regex.firstMatch(in: trimmedRaw, options: [], range: range),
+              let matchRange = Range(firstMatch.range, in: trimmedRaw) else {
+            return rawText
+        }
+
+        var rewritten = trimmedRaw
+        rewritten.replaceSubrange(matchRange, with: trimmedAmount)
+        return rewritten
+    }
+
+    static let dateDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
+
     static func deduplicatedQueue(_ items: [QueuedCapture]) -> [QueuedCapture] {
         var seenLocalIDs = Set<UUID>()
         var seenClientIDs = Set<UUID>()

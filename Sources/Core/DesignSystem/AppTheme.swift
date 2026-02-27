@@ -203,17 +203,42 @@ extension View {
 }
 
 enum CurrencyFormatter {
+    private static var formatters: [String: NumberFormatter] = [:]
+    private static let lock = NSLock()
+
     static func string(
         _ amount: Decimal,
         currency: String = "USD",
         minimumFractionDigits: Int = 0,
         maximumFractionDigits: Int = 2
     ) -> String {
+        let formatter = formatterFor(
+            currency: currency,
+            minimumFractionDigits: minimumFractionDigits,
+            maximumFractionDigits: maximumFractionDigits
+        )
+        return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
+    }
+
+    private static func formatterFor(
+        currency: String,
+        minimumFractionDigits: Int,
+        maximumFractionDigits: Int
+    ) -> NumberFormatter {
+        let key = "\(currency)|\(minimumFractionDigits)|\(maximumFractionDigits)"
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let existing = formatters[key] {
+            return existing
+        }
+
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = currency
         formatter.minimumFractionDigits = minimumFractionDigits
         formatter.maximumFractionDigits = maximumFractionDigits
-        return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
+        formatters[key] = formatter
+        return formatter
     }
 }

@@ -39,6 +39,7 @@ final class FileQueueStore: QueueStoreProtocol {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let fm: FileManager
+    private let ioQueue = DispatchQueue(label: "com.speakance.queue-store-io", qos: .utility)
 
     init(fileManager: FileManager = .default) {
         self.fm = fileManager
@@ -55,27 +56,27 @@ final class FileQueueStore: QueueStoreProtocol {
     }
 
     func loadQueue() -> [QueuedCapture] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        guard let queue = try? decoder.decode([QueuedCapture].self, from: data) else { return [] }
-        return queue
-    }
-
-    func saveQueue(_ queue: [QueuedCapture]) {
-        do {
-            try ensureDirectoryExists()
-            let data = try encoder.encode(queue)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            #if DEBUG
-            print("[Speakance] Failed to save queue: \(error)")
-            #endif
+        ioQueue.sync {
+            guard let data = try? Data(contentsOf: fileURL) else { return [] }
+            guard let queue = try? decoder.decode([QueuedCapture].self, from: data) else { return [] }
+            return queue
         }
     }
 
-    private func ensureDirectoryExists() throws {
-        let dir = fileURL.deletingLastPathComponent()
-        if !fm.fileExists(atPath: dir.path) {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    func saveQueue(_ queue: [QueuedCapture]) {
+        ioQueue.async { [fileURL, fm, encoder] in
+            do {
+                let dir = fileURL.deletingLastPathComponent()
+                if !fm.fileExists(atPath: dir.path) {
+                    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                }
+                let data = try encoder.encode(queue)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                #if DEBUG
+                print("[Speakance] Failed to save queue: \(error)")
+                #endif
+            }
         }
     }
 
@@ -98,6 +99,7 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let fm: FileManager
+    private let ioQueue = DispatchQueue(label: "com.speakance.expense-store-io", qos: .utility)
 
     init(fileManager: FileManager = .default) {
         self.fm = fileManager
@@ -114,23 +116,27 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
     }
 
     func loadExpenses() -> [ExpenseRecord] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        guard let expenses = try? decoder.decode([ExpenseRecord].self, from: data) else { return [] }
-        return expenses
+        ioQueue.sync {
+            guard let data = try? Data(contentsOf: fileURL) else { return [] }
+            guard let expenses = try? decoder.decode([ExpenseRecord].self, from: data) else { return [] }
+            return expenses
+        }
     }
 
     func saveExpenses(_ expenses: [ExpenseRecord]) {
-        do {
-            let dir = fileURL.deletingLastPathComponent()
-            if !fm.fileExists(atPath: dir.path) {
-                try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        ioQueue.async { [fileURL, fm, encoder] in
+            do {
+                let dir = fileURL.deletingLastPathComponent()
+                if !fm.fileExists(atPath: dir.path) {
+                    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                }
+                let data = try encoder.encode(expenses)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                #if DEBUG
+                print("[Speakance] Failed to save expenses: \(error)")
+                #endif
             }
-            let data = try encoder.encode(expenses)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            #if DEBUG
-            print("[Speakance] Failed to save expenses: \(error)")
-            #endif
         }
     }
 }
