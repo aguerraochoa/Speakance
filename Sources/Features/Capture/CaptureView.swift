@@ -330,7 +330,7 @@ struct CaptureView: View {
         case .processing:
             return "Processing recording..."
         case .idle:
-            return "One expense • 15 seconds max"
+            return "One expense • \(store.maxVoiceCaptureSeconds) seconds max"
         }
     }
 

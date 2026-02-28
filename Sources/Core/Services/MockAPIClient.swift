@@ -42,6 +42,7 @@ struct UserMetadataSyncSnapshotDTO {
     var paymentMethods: [PaymentMethod]
     var activeTripID: UUID?
     var defaultCurrencyCode: String?
+    var dailyVoiceLimit: Int?
 }
 
 struct MockExpenseAPIClient: ExpenseAPIClientProtocol {

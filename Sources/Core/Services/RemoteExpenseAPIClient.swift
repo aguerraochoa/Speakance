@@ -398,7 +398,8 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             trips: trips,
             paymentMethods: paymentMethods,
             activeTripID: activeTripID,
-            defaultCurrencyCode: profile?.defaultCurrency
+            defaultCurrencyCode: profile?.defaultCurrency,
+            dailyVoiceLimit: profile?.dailyVoiceLimit
         )
     }
 
@@ -407,7 +408,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         let decoder = makeSupabaseDecoder()
         var request = makeJSONRequest(
             url: try makeRestURL(path: "profiles", queryItems: [
-                URLQueryItem(name: "select", value: "id,default_currency"),
+                URLQueryItem(name: "select", value: "id,default_currency,daily_voice_limit"),
                 URLQueryItem(name: "id", value: "eq.\(userID)"),
                 URLQueryItem(name: "limit", value: "1"),
             ]),
@@ -662,6 +663,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         let currency = (snapshot.defaultCurrencyCode ?? "USD")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
+        let dailyVoiceLimit = snapshot.dailyVoiceLimit
 
         var upsertReq = makeJSONRequest(
             url: try makeRestURL(path: "profiles", queryItems: [URLQueryItem(name: "on_conflict", value: "id")]),
@@ -669,7 +671,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         )
         upsertReq.httpMethod = "POST"
         upsertReq.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
-        upsertReq.httpBody = try JSONEncoder().encode([RESTProfileUpsert(id: userID, defaultCurrency: currency)])
+        upsertReq.httpBody = try JSONEncoder().encode([RESTProfileUpsert(id: userID, defaultCurrency: currency, dailyVoiceLimit: dailyVoiceLimit)])
         let (data, response) = try await session.data(for: upsertReq)
         try validateREST(response: response, data: data)
     }
@@ -977,20 +979,24 @@ private struct RESTCategory: Decodable {
 private struct RESTProfile: Decodable {
     let id: String
     let defaultCurrency: String?
+    let dailyVoiceLimit: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
         case defaultCurrency = "default_currency"
+        case dailyVoiceLimit = "daily_voice_limit"
     }
 }
 
 private struct RESTProfileUpsert: Encodable {
     let id: String
     let defaultCurrency: String
+    let dailyVoiceLimit: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
         case defaultCurrency = "default_currency"
+        case dailyVoiceLimit = "daily_voice_limit"
     }
 }
 

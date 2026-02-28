@@ -15,6 +15,7 @@ struct InsightsView: View {
                     headerCard
                     filtersCard
                     summaryRow
+                    budgetGuardrailsCard
                     donutCard
                     yearlyCategoryTrendCard
                 }
@@ -248,6 +249,43 @@ struct InsightsView: View {
                                     legendRow(segment)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var budgetGuardrailsCard: some View {
+        let snapshots = store.budgetSnapshot()
+
+        return SpeakCard(padding: 18, cornerRadius: 24, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(
+                    title: "Budget Guardrails",
+                    subtitle: snapshots.isEmpty ? "Set budgets in Settings to track overages." : "Current month progress by category"
+                )
+
+                if snapshots.isEmpty {
+                    Text("No monthly budgets configured yet.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.faintText)
+                } else {
+                    ForEach(snapshots.prefix(4)) { snapshot in
+                        HStack(spacing: 10) {
+                            CategoryDot(category: snapshot.rule.categoryName)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(snapshot.rule.categoryName)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(AppTheme.ink)
+                                Text("\(insightsCurrencyString(snapshot.spent)) / \(insightsCurrencyString(snapshot.rule.monthlyLimit))")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(snapshot.isOverBudget ? AppTheme.error : AppTheme.faintText)
+                            }
+                            Spacer()
+                            Text("\(Int((snapshot.progressRatio * 100).rounded()))%")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(snapshot.progressRatio >= 1 ? AppTheme.error : AppTheme.ink)
                         }
                     }
                 }

@@ -9,8 +9,6 @@ final class NetworkMonitor: ObservableObject {
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.speakance.network-monitor")
-    private var lastPathConnected = true
-    private var debugOverride: Bool?
 
     init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -26,19 +24,8 @@ final class NetworkMonitor: ObservableObject {
         monitor.cancel()
     }
 
-    func setDebugConnectivity(_ isConnected: Bool) {
-        debugOverride = isConnected
-        applyConnectivity(isConnected)
-    }
-
-    func clearDebugOverride() {
-        debugOverride = nil
-        applyConnectivity(lastPathConnected)
-    }
-
     private func handlePathUpdate(_ connected: Bool) {
-        lastPathConnected = connected
-        applyConnectivity(debugOverride ?? connected)
+        applyConnectivity(connected)
     }
 
     private func applyConnectivity(_ newValue: Bool) {

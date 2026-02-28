@@ -29,6 +29,10 @@ final class AudioCaptureService: NSObject, ObservableObject {
     private let maxDurationSeconds = 15
     private let minimumUsefulDurationSeconds = 1
 
+    var maxRecordingDurationSeconds: Int {
+        maxDurationSeconds
+    }
+
     func setPreferredSpeechLocaleIdentifier(_ identifier: String?) {
         preferredSpeechLocaleIdentifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
     }
@@ -255,7 +259,7 @@ final class AudioCaptureService: NSObject, ObservableObject {
         let rawText = nativeTranscript ?? "Voice recording"
 
         if triggeredByAutoStop {
-            lastErrorMessage = "Recording reached 15 seconds and was stopped automatically."
+            lastErrorMessage = "Recording reached \(maxDurationSeconds) seconds and was stopped automatically."
         } else if nativeTranscript == nil && speechPermissionDenied {
             lastErrorMessage = "Speech recognition is disabled. We'll transcribe after upload."
         }

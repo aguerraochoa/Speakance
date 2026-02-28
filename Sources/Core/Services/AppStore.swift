@@ -10,13 +10,18 @@ final class AppStore: ObservableObject {
     @Published var isSyncingQueue = false
     @Published var isConnected: Bool
     @Published var lastOperationalErrorMessage: String?
+    @Published var lastQueueSyncAttemptAt: Date?
+    @Published var lastQueueSyncSuccessAt: Date?
+    @Published var shouldShowOnboarding: Bool = false
 
     @Published var categoryDefinitions: [CategoryDefinition] = []
     @Published var trips: [TripRecord] = []
     @Published var paymentMethods: [PaymentMethod] = []
+    @Published var budgetRules: [BudgetRule] = []
     @Published var activeTripID: UUID?
     @Published var defaultCurrencyCode: String = "USD"
     @Published var parsingLanguage: ParsingLanguage = .auto
+    @Published var dailyVoiceLimit: Int = AppStore.defaultDailyVoiceLimit
     @Published var recentlyDeletedExpenses: [RecentlyDeletedExpenseEntry] = []
 
     let networkMonitor: NetworkMonitor
@@ -53,9 +58,12 @@ final class AppStore: ObservableObject {
         self.categoryDefinitions = persistedMeta.categories
         self.trips = persistedMeta.trips
         self.paymentMethods = persistedMeta.paymentMethods
+        self.budgetRules = persistedMeta.budgetRules
         self.activeTripID = persistedMeta.activeTripID
         self.defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
         self.parsingLanguage = Self.normalizedParsingLanguage(persistedMeta.parsingLanguage) ?? .auto
+        self.dailyVoiceLimit = Self.normalizedDailyVoiceLimit(persistedMeta.dailyVoiceLimit) ?? Self.defaultDailyVoiceLimit
+        self.shouldShowOnboarding = persistedMeta.hasCompletedOnboarding != true
         self.recentlyDeletedExpenses = recentlyDeletedStore.load()
         resolvedAudioCaptureService.setPreferredSpeechLocaleIdentifier(self.parsingLanguage.speechLocaleIdentifier)
         purgeExpiredRecentlyDeletedExpenses()
@@ -81,6 +89,7 @@ final class AppStore: ObservableObject {
     ]
 
     static let supportedParsingLanguages: [ParsingLanguage] = [.auto, .english, .spanish]
+    static let defaultDailyVoiceLimit = 50
 
     var activeTrip: TripRecord? {
         guard let activeTripID else { return nil }
@@ -97,6 +106,14 @@ final class AppStore: ObservableObject {
 
     var activePaymentMethodOptions: [PaymentMethod] {
         paymentMethods.filter(\.isActive).sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var maxVoiceCaptureSeconds: Int {
+        audioCaptureService.maxRecordingDurationSeconds
+    }
+
+    var activeBudgetRules: [BudgetRule] {
+        budgetRules.filter(\.isEnabled).sorted { $0.categoryName.localizedCaseInsensitiveCompare($1.categoryName) == .orderedAscending }
     }
 
     func startRecording() {
@@ -157,9 +174,15 @@ final class AppStore: ObservableObject {
         guard await syncEngine.canSync(networkIsConnected: isConnected) else { return }
         guard !isSyncingQueue else { return }
 
+        lastQueueSyncAttemptAt = .now
         isSyncingQueue = true
+        var hadFailure = false
+        var processedAnyItem = false
         defer {
             isSyncingQueue = false
+            if processedAnyItem && !hadFailure {
+                lastQueueSyncSuccessAt = .now
+            }
             persistQueue()
         }
 
@@ -167,6 +190,7 @@ final class AppStore: ObservableObject {
         for queueID in queueIDs {
             guard let index = queuedCaptures.firstIndex(where: { $0.id == queueID }) else { continue }
             if queuedCaptures[index].status != .pending { continue }
+            processedAnyItem = true
 
             queuedCaptures[index].status = .syncing
             queuedCaptures[index].lastError = nil
@@ -222,6 +246,7 @@ final class AppStore: ObservableObject {
                 case .pending, .syncing, .failed:
                     queuedCaptures[index].status = .failed
                     queuedCaptures[index].lastError = "Unexpected parser state"
+                    hadFailure = true
                     logOperationalError("Unexpected parser state during sync", details: [
                         "queueID": queuedCaptures[index].id.uuidString
                     ])
@@ -231,6 +256,7 @@ final class AppStore: ObservableObject {
                     // Keep items pending when auth is missing/expired so they can recover after sign-in.
                     queuedCaptures[index].status = .pending
                     queuedCaptures[index].lastError = error.localizedDescription
+                    hadFailure = true
                     logOperationalError("Queue sync paused (auth required)", details: [
                         "queueID": queuedCaptures[index].id.uuidString,
                         "clientExpenseID": queuedCaptures[index].clientExpenseID.uuidString,
@@ -242,6 +268,7 @@ final class AppStore: ObservableObject {
                 queuedCaptures[index].status = .failed
                 queuedCaptures[index].retryCount += 1
                 queuedCaptures[index].lastError = error.localizedDescription
+                hadFailure = true
                 logOperationalError("Queue sync failed", details: [
                     "queueID": queuedCaptures[index].id.uuidString,
                     "clientExpenseID": queuedCaptures[index].clientExpenseID.uuidString,
@@ -256,6 +283,15 @@ final class AppStore: ObservableObject {
             queuedCaptures[idx].status = .pending
             queuedCaptures[idx].lastError = nil
         }
+        persistQueue()
+        Task { await syncQueueIfPossible() }
+    }
+
+    func retryQueueItem(_ queueID: UUID) {
+        guard let idx = queuedCaptures.firstIndex(where: { $0.id == queueID }) else { return }
+        guard queuedCaptures[idx].status == .failed || queuedCaptures[idx].status == .pending else { return }
+        queuedCaptures[idx].status = .pending
+        queuedCaptures[idx].lastError = nil
         persistQueue()
         Task { await syncQueueIfPossible() }
     }
@@ -288,11 +324,26 @@ final class AppStore: ObservableObject {
     }
 
     func saveReview(_ context: ReviewContext) {
+        let previousDescription: String? = {
+            if let expenseID = context.expenseID {
+                return expenses.first(where: { $0.id == expenseID })?.description
+            }
+            if let queueID = context.queueID {
+                return queuedCaptures.first(where: { $0.id == queueID })?.parsedDraft?.description
+            }
+            return nil
+        }()
+
         var normalizedDraft = context.draft
         normalizedDraft.amountText = Self.normalizedAmountText(normalizedDraft.amountText)
         normalizedDraft.rawText = Self.rewrittenRawAmountText(
             in: normalizedDraft.rawText,
             amountText: normalizedDraft.amountText
+        )
+        normalizedDraft.rawText = Self.rewrittenRawDescriptionText(
+            in: normalizedDraft.rawText,
+            previousDescription: previousDescription,
+            newDescription: normalizedDraft.description
         )
 
         saveParsedDraft(normalizedDraft, queueID: context.queueID, existingExpenseID: context.expenseID, markAsEdited: true)
@@ -434,10 +485,6 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func setNetworkConnectivity(_ isConnected: Bool) {
-        networkMonitor.setDebugConnectivity(isConnected)
-    }
-
     func setDefaultCurrencyCode(_ code: String) {
         guard let normalized = Self.normalizedCurrencyCode(code) else { return }
         guard defaultCurrencyCode != normalized else { return }
@@ -570,6 +617,143 @@ final class AppStore: ObservableObject {
         persistExpenses()
         persistMeta()
         scheduleMetadataSync()
+    }
+
+    func setBudgetLimit(categoryName: String, monthlyLimitText: String) {
+        let normalizedCategory = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCategory.isEmpty else { return }
+
+        let normalizedAmount = monthlyLimitText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+
+        guard let amount = Decimal(string: normalizedAmount), amount > 0 else { return }
+        if let idx = budgetRules.firstIndex(where: { $0.categoryName.caseInsensitiveCompare(normalizedCategory) == .orderedSame }) {
+            budgetRules[idx].categoryName = normalizedCategory
+            budgetRules[idx].monthlyLimit = amount
+            budgetRules[idx].isEnabled = true
+        } else {
+            budgetRules.append(BudgetRule(categoryName: normalizedCategory, monthlyLimit: amount, isEnabled: true))
+        }
+        budgetRules.sort { $0.categoryName.localizedCaseInsensitiveCompare($1.categoryName) == .orderedAscending }
+        persistMeta()
+    }
+
+    func removeBudgetRule(_ id: UUID) {
+        budgetRules.removeAll { $0.id == id }
+        persistMeta()
+    }
+
+    func budgetUsage(for categoryName: String, in month: Date = .now) -> Decimal {
+        let calendar = Calendar.current
+        return expenses
+            .filter {
+                $0.category.caseInsensitiveCompare(categoryName) == .orderedSame &&
+                calendar.isDate($0.expenseDate, equalTo: month, toGranularity: .month)
+            }
+            .reduce(Decimal.zero) { $0 + $1.amount }
+    }
+
+    func budgetSnapshot(in month: Date = .now) -> [BudgetUsageSnapshot] {
+        activeBudgetRules.compactMap { rule in
+            let spent = budgetUsage(for: rule.categoryName, in: month)
+            return BudgetUsageSnapshot(rule: rule, spent: spent)
+        }
+        .sorted { lhs, rhs in
+            if lhs.progressRatio != rhs.progressRatio { return lhs.progressRatio > rhs.progressRatio }
+            return lhs.rule.categoryName.localizedCaseInsensitiveCompare(rhs.rule.categoryName) == .orderedAscending
+        }
+    }
+
+    var budgetAlerts: [BudgetUsageSnapshot] {
+        budgetSnapshot().filter { $0.progressRatio >= 0.8 }
+    }
+
+    func markOnboardingCompleted() {
+        shouldShowOnboarding = false
+        persistMeta()
+    }
+
+    func resetOnboardingForDebug() {
+        shouldShowOnboarding = true
+        persistMeta()
+    }
+
+    func exportExpensesCSV() -> String {
+        let sorted = expenses.sorted { lhs, rhs in
+            if lhs.expenseDate == rhs.expenseDate { return lhs.updatedAt > rhs.updatedAt }
+            return lhs.expenseDate > rhs.expenseDate
+        }
+        var rows: [String] = []
+        rows.append("expense_id,client_expense_id,expense_date,amount,currency,category,description,merchant,payment_method,trip,source,parse_status,raw_text,captured_at_device,updated_at")
+        for item in sorted {
+            let row = [
+                item.id.uuidString,
+                item.clientExpenseID.uuidString,
+                Self.csvDateTimeFormatter.string(from: item.expenseDate),
+                NSDecimalNumber(decimal: item.amount).stringValue,
+                item.currency,
+                item.category,
+                item.description ?? "",
+                item.merchant ?? "",
+                item.paymentMethodName ?? "",
+                item.tripName ?? "",
+                item.source.rawValue,
+                item.parseStatus.rawValue,
+                item.rawText ?? "",
+                Self.csvDateTimeFormatter.string(from: item.capturedAtDevice),
+                Self.csvDateTimeFormatter.string(from: item.updatedAt),
+            ].map(Self.escapeCSVField)
+            rows.append(row.joined(separator: ","))
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    func makeBackupJSONData() throws -> Data {
+        let payload = LocalBackupPayload(
+            exportedAt: .now,
+            expenses: expenses,
+            queuedCaptures: queuedCaptures,
+            categories: categoryDefinitions,
+            trips: trips,
+            paymentMethods: paymentMethods,
+            budgetRules: budgetRules,
+            activeTripID: activeTripID,
+            defaultCurrencyCode: defaultCurrencyCode,
+            parsingLanguage: parsingLanguage.rawValue,
+            recentlyDeletedExpenses: recentlyDeletedExpenses
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        return try encoder.encode(payload)
+    }
+
+    func importBackupJSONData(_ data: Data) throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let payload = try decoder.decode(LocalBackupPayload.self, from: data)
+
+        expenses = Self.deduplicatedExpenses(payload.expenses)
+        queuedCaptures = Self.normalizedQueueForStartup(Self.deduplicatedQueue(payload.queuedCaptures))
+        categoryDefinitions = payload.categories
+        trips = payload.trips
+        paymentMethods = payload.paymentMethods
+        budgetRules = payload.budgetRules
+        activeTripID = payload.activeTripID
+        defaultCurrencyCode = Self.normalizedCurrencyCode(payload.defaultCurrencyCode) ?? "USD"
+        parsingLanguage = Self.normalizedParsingLanguage(payload.parsingLanguage) ?? .auto
+        audioCaptureService.setPreferredSpeechLocaleIdentifier(parsingLanguage.speechLocaleIdentifier)
+        recentlyDeletedExpenses = payload.recentlyDeletedExpenses
+
+        if categoryDefinitions.isEmpty {
+            seedDefaultsIfNeeded()
+        }
+
+        persistExpenses()
+        persistQueue()
+        persistMeta()
+        persistRecentlyDeletedExpenses()
     }
 
     func tripTotal(_ tripID: UUID?) -> Decimal {
@@ -792,9 +976,12 @@ final class AppStore: ObservableObject {
             categories: categoryDefinitions,
             trips: trips,
             paymentMethods: paymentMethods,
+            budgetRules: budgetRules,
             activeTripID: activeTripID,
             defaultCurrencyCode: defaultCurrencyCode,
-            parsingLanguage: parsingLanguage.rawValue
+            parsingLanguage: parsingLanguage.rawValue,
+            dailyVoiceLimit: dailyVoiceLimit,
+            hasCompletedOnboarding: !shouldShowOnboarding
         ))
     }
 
@@ -849,7 +1036,8 @@ final class AppStore: ObservableObject {
                 trips: trips,
                 paymentMethods: paymentMethods,
                 activeTripID: activeTripID,
-                defaultCurrencyCode: defaultCurrencyCode
+                defaultCurrencyCode: defaultCurrencyCode,
+                dailyVoiceLimit: dailyVoiceLimit
             )
             do {
                 try await apiClient.syncMetadata(snapshot)
@@ -871,6 +1059,9 @@ final class AppStore: ObservableObject {
             paymentMethods = snapshot.paymentMethods
             if let remoteDefault = Self.normalizedCurrencyCode(snapshot.defaultCurrencyCode) {
                 defaultCurrencyCode = remoteDefault
+            }
+            if let remoteDailyVoiceLimit = Self.normalizedDailyVoiceLimit(snapshot.dailyVoiceLimit) {
+                dailyVoiceLimit = remoteDailyVoiceLimit
             }
             if let active = snapshot.activeTripID, trips.contains(where: { $0.id == active }) {
                 activeTripID = active
@@ -1032,6 +1223,11 @@ final class AppStore: ObservableObject {
         return ParsingLanguage(rawValue: raw)
     }
 
+    private static func normalizedDailyVoiceLimit(_ raw: Int?) -> Int? {
+        guard let raw, raw > 0 else { return nil }
+        return raw
+    }
+
     private static func detectCurrencyCode(in text: String) -> String? {
         let lower = text.lowercased()
         guard !lower.isEmpty else { return nil }
@@ -1065,6 +1261,19 @@ final class AppStore: ObservableObject {
 }
 
 private extension AppStore {
+    static let csvDateTimeFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static func escapeCSVField(_ value: String) -> String {
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+        }
+        return value
+    }
+
     static func normalizedAmountText(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return raw }
@@ -1092,6 +1301,25 @@ private extension AppStore {
         var rewritten = trimmedRaw
         rewritten.replaceSubrange(matchRange, with: trimmedAmount)
         return rewritten
+    }
+
+    static func rewrittenRawDescriptionText(in rawText: String, previousDescription: String?, newDescription: String) -> String {
+        let trimmedRaw = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNew = newDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrevious = previousDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard !trimmedRaw.isEmpty, !trimmedNew.isEmpty else { return rawText }
+        guard trimmedRaw.caseInsensitiveCompare("Voice capture") != .orderedSame else { return rawText }
+        guard !trimmedPrevious.isEmpty else { return rawText }
+        guard trimmedPrevious.caseInsensitiveCompare(trimmedNew) != .orderedSame else { return rawText }
+
+        if let range = trimmedRaw.range(of: trimmedPrevious, options: [.caseInsensitive, .diacriticInsensitive]) {
+            var rewritten = trimmedRaw
+            rewritten.replaceSubrange(range, with: trimmedNew)
+            return rewritten
+        }
+
+        return rawText
     }
 
     static let dateDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
@@ -1195,14 +1423,105 @@ enum ParsingLanguage: String, Codable, CaseIterable {
     }
 }
 
+struct BudgetUsageSnapshot: Identifiable, Sendable {
+    let id: UUID
+    let rule: BudgetRule
+    let spent: Decimal
+
+    init(rule: BudgetRule, spent: Decimal) {
+        self.id = rule.id
+        self.rule = rule
+        self.spent = spent
+    }
+
+    var remaining: Decimal {
+        max(Decimal.zero, rule.monthlyLimit - spent)
+    }
+
+    var isOverBudget: Bool {
+        spent > rule.monthlyLimit
+    }
+
+    var progressRatio: Double {
+        let limit = NSDecimalNumber(decimal: rule.monthlyLimit).doubleValue
+        guard limit > 0 else { return 0 }
+        let spentValue = NSDecimalNumber(decimal: spent).doubleValue
+        return spentValue / limit
+    }
+}
+
+private struct LocalBackupPayload: Codable {
+    var exportedAt: Date
+    var expenses: [ExpenseRecord]
+    var queuedCaptures: [QueuedCapture]
+    var categories: [CategoryDefinition]
+    var trips: [TripRecord]
+    var paymentMethods: [PaymentMethod]
+    var budgetRules: [BudgetRule]
+    var activeTripID: UUID?
+    var defaultCurrencyCode: String?
+    var parsingLanguage: String?
+    var recentlyDeletedExpenses: [RecentlyDeletedExpenseEntry]
+}
+
 private final class LocalMetaStore {
     struct Payload: Codable {
         var categories: [CategoryDefinition]
         var trips: [TripRecord]
         var paymentMethods: [PaymentMethod]
+        var budgetRules: [BudgetRule]
         var activeTripID: UUID?
         var defaultCurrencyCode: String?
         var parsingLanguage: String?
+        var dailyVoiceLimit: Int?
+        var hasCompletedOnboarding: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case categories
+            case trips
+            case paymentMethods
+            case budgetRules
+            case activeTripID
+            case defaultCurrencyCode
+            case parsingLanguage
+            case dailyVoiceLimit
+            case hasCompletedOnboarding
+        }
+
+        init(
+            categories: [CategoryDefinition],
+            trips: [TripRecord],
+            paymentMethods: [PaymentMethod],
+            budgetRules: [BudgetRule],
+            activeTripID: UUID?,
+            defaultCurrencyCode: String?,
+            parsingLanguage: String?,
+            dailyVoiceLimit: Int?,
+            hasCompletedOnboarding: Bool?
+        ) {
+            self.categories = categories
+            self.trips = trips
+            self.paymentMethods = paymentMethods
+            self.budgetRules = budgetRules
+            self.activeTripID = activeTripID
+            self.defaultCurrencyCode = defaultCurrencyCode
+            self.parsingLanguage = parsingLanguage
+            self.dailyVoiceLimit = dailyVoiceLimit
+            self.hasCompletedOnboarding = hasCompletedOnboarding
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            categories = try container.decodeIfPresent([CategoryDefinition].self, forKey: .categories) ?? []
+            trips = try container.decodeIfPresent([TripRecord].self, forKey: .trips) ?? []
+            paymentMethods = try container.decodeIfPresent([PaymentMethod].self, forKey: .paymentMethods) ?? []
+            budgetRules = try container.decodeIfPresent([BudgetRule].self, forKey: .budgetRules) ?? []
+            activeTripID = try container.decodeIfPresent(UUID.self, forKey: .activeTripID)
+            defaultCurrencyCode = try container.decodeIfPresent(String.self, forKey: .defaultCurrencyCode)
+            parsingLanguage = try container.decodeIfPresent(String.self, forKey: .parsingLanguage)
+            dailyVoiceLimit = try container.decodeIfPresent(Int.self, forKey: .dailyVoiceLimit)
+            hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
+        }
     }
 
     private let key = "speakance.local-meta.v1"
@@ -1222,7 +1541,17 @@ private final class LocalMetaStore {
     func load() -> Payload {
         guard let data = UserDefaults.standard.data(forKey: key),
               let payload = try? decoder.decode(Payload.self, from: data) else {
-            return Payload(categories: [], trips: [], paymentMethods: [], activeTripID: nil, defaultCurrencyCode: nil, parsingLanguage: nil)
+            return Payload(
+                categories: [],
+                trips: [],
+                paymentMethods: [],
+                budgetRules: [],
+                activeTripID: nil,
+                defaultCurrencyCode: nil,
+                parsingLanguage: nil,
+                dailyVoiceLimit: nil,
+                hasCompletedOnboarding: nil
+            )
         }
         return payload
     }

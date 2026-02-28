@@ -112,6 +112,28 @@ struct PaymentMethod: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct BudgetRule: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var categoryName: String
+    var monthlyLimit: Decimal
+    var isEnabled: Bool
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        categoryName: String,
+        monthlyLimit: Decimal,
+        isEnabled: Bool = true,
+        createdAt: Date = .now
+    ) {
+        self.id = id
+        self.categoryName = categoryName
+        self.monthlyLimit = monthlyLimit
+        self.isEnabled = isEnabled
+        self.createdAt = createdAt
+    }
+}
+
 struct ExpenseRecord: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let clientExpenseID: UUID

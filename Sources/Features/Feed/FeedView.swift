@@ -17,6 +17,9 @@ struct FeedView: View {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         header
                         modeSwitcher
+                        if selectedMode == .queue {
+                            queueHealthCard
+                        }
 
                         if selectedMode == .saved {
                             savedFiltersBar
@@ -86,8 +89,8 @@ struct FeedView: View {
                     }
                     Spacer()
                     StatusPill(
-                        text: store.isSyncingQueue ? "Syncing" : "Up to date",
-                        color: store.isSyncingQueue ? AppTheme.warning : AppTheme.success
+                        text: store.isSyncingQueue ? "Syncing" : (failedQueueCount > 0 ? "Needs Attention" : "Up to date"),
+                        color: store.isSyncingQueue ? AppTheme.warning : (failedQueueCount > 0 ? AppTheme.error : AppTheme.success)
                     )
                 }
 
@@ -98,6 +101,34 @@ struct FeedView: View {
                         tint: AppTheme.accent
                     )
                     MetricChip(title: "Queue", value: "\(store.queuedCaptures.filter { $0.status != .saved }.count)", tint: AppTheme.sky)
+                }
+            }
+        }
+    }
+
+    private var queueHealthCard: some View {
+        SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    MetricChip(title: "Pending", value: "\(pendingQueueCount)", tint: AppTheme.butter)
+                    MetricChip(title: "Failed", value: "\(failedQueueCount)", tint: AppTheme.coral)
+                }
+
+                HStack {
+                    Text(lastSyncLabel)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                    Spacer()
+                    if failedQueueCount > 0 {
+                        Button {
+                            store.retryFailedQueueItems()
+                        } label: {
+                            Label("Retry All", systemImage: "arrow.clockwise")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(AppTheme.error)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }
@@ -402,10 +433,30 @@ struct FeedView: View {
                             .foregroundStyle(AppTheme.error)
                             .lineLimit(2)
                     }
+                    if item.status == .needsReview {
+                        Text("Needs review: tap this item to confirm parsed fields.")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(AppTheme.warning)
+                    }
                 }
 
                 Spacer(minLength: 8)
-                QueueBadge(status: item.status)
+                VStack(alignment: .trailing, spacing: 8) {
+                    QueueBadge(status: item.status)
+                    if item.status == .failed || item.status == .pending {
+                        Button {
+                            store.retryQueueItem(item.id)
+                        } label: {
+                            Text("Retry")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(AppTheme.accent)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(AppTheme.accent.opacity(0.12), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -667,6 +718,24 @@ struct FeedView: View {
         case let .trip(id):
             return store.trips.first(where: { $0.id == id })?.name ?? "Unknown"
         }
+    }
+
+    private var failedQueueCount: Int {
+        store.queuedCaptures.filter { $0.status == .failed }.count
+    }
+
+    private var pendingQueueCount: Int {
+        store.queuedCaptures.filter { $0.status == .pending || $0.status == .syncing || $0.status == .needsReview }.count
+    }
+
+    private var lastSyncLabel: String {
+        if let success = store.lastQueueSyncSuccessAt {
+            return "Last successful sync: \(success.formatted(date: .abbreviated, time: .shortened))"
+        }
+        if let attempted = store.lastQueueSyncAttemptAt {
+            return "Last sync attempt: \(attempted.formatted(date: .abbreviated, time: .shortened))"
+        }
+        return "No sync attempts yet."
     }
 
 }

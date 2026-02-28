@@ -1,4 +1,6 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
 
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
@@ -9,6 +11,13 @@ struct SettingsView: View {
     @State private var newTripName = ""
     @State private var newPaymentMethodName = ""
     @State private var newPaymentMethodAliases = ""
+    @State private var selectedBudgetCategory: String = "Food"
+    @State private var budgetLimitText = ""
+    @State private var backupExportDocument = BackupJSONDocument(data: Data())
+    @State private var isExportingBackup = false
+    @State private var isImportingBackup = false
+    @State private var csvShareItem: CSVShareItem?
+    @State private var backupActionMessage: String?
 
     var body: some View {
         ScrollView {
@@ -16,11 +25,12 @@ struct SettingsView: View {
                 headerCard
                 accountCard
                 preferencesCard
+                budgetsCard
                 categoriesCard
                 tripsCard
                 paymentMethodsCard
                 syncCard
-                aboutCard
+                dataCard
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
@@ -29,6 +39,48 @@ struct SettingsView: View {
         .background(AppCanvasBackground())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            if let firstCategory = store.categories.first {
+                selectedBudgetCategory = firstCategory
+            }
+        }
+        .fileExporter(
+            isPresented: $isExportingBackup,
+            document: backupExportDocument,
+            contentType: .json,
+            defaultFilename: "speakance-backup-\(exportDateStamp)"
+        ) { result in
+            switch result {
+            case .success:
+                backupActionMessage = "Backup exported."
+            case let .failure(error):
+                backupActionMessage = "Backup export failed: \(error.localizedDescription)"
+            }
+        }
+        .fileImporter(
+            isPresented: $isImportingBackup,
+            allowedContentTypes: [.json]
+        ) { result in
+            switch result {
+            case let .success(url):
+                do {
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if access { url.stopAccessingSecurityScopedResource() }
+                    }
+                    let data = try Data(contentsOf: url)
+                    try store.importBackupJSONData(data)
+                    backupActionMessage = "Backup imported."
+                } catch {
+                    backupActionMessage = "Backup import failed: \(error.localizedDescription)"
+                }
+            case let .failure(error):
+                backupActionMessage = "Backup import cancelled: \(error.localizedDescription)"
+            }
+        }
+        .sheet(item: $csvShareItem) { item in
+            ActivityShareSheet(activityItems: [item.url])
+        }
     }
 
     @ViewBuilder
@@ -167,8 +219,72 @@ struct SettingsView: View {
                 }
 
                 HStack(spacing: 10) {
-                    MetricChip(title: "Voice / day", value: "50", tint: AppTheme.sky)
-                    MetricChip(title: "Max length", value: "15s", tint: AppTheme.butter)
+                    MetricChip(title: "Voice / day", value: "\(store.dailyVoiceLimit)", tint: AppTheme.sky)
+                    MetricChip(title: "Max length", value: "\(store.maxVoiceCaptureSeconds)s", tint: AppTheme.butter)
+                }
+            }
+        }
+    }
+
+    private var budgetsCard: some View {
+        SpeakCard(padding: 16, cornerRadius: 22) {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "Budget Guardrails", subtitle: "Monthly category limits and overage alerts")
+
+                HStack(spacing: 10) {
+                    Menu {
+                        ForEach(store.categories, id: \.self) { category in
+                            Button(category) {
+                                selectedBudgetCategory = category
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text(selectedBudgetCategory)
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                        }
+                        .foregroundStyle(AppTheme.ink)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color(uiColor: .separator).opacity(0.20), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    TextField("Limit", text: $budgetLimitText)
+                        .keyboardType(.decimalPad)
+                        .modernField()
+                        .frame(width: 120)
+                }
+
+                Button {
+                    store.setBudgetLimit(categoryName: selectedBudgetCategory, monthlyLimitText: budgetLimitText)
+                    budgetLimitText = ""
+                } label: {
+                    Label("Save Budget", systemImage: "checkmark.circle")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.white)
+                        .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(budgetLimitText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(budgetLimitText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
+
+                if store.activeBudgetRules.isEmpty {
+                    Text("No budgets configured yet.")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.faintText)
+                } else {
+                    ForEach(store.budgetSnapshot()) { snapshot in
+                        budgetRow(snapshot)
+                    }
                 }
             }
         }
@@ -387,26 +503,6 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "Offline & Sync", subtitle: "Queue uploads and parser retries")
 
-#if DEBUG
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Network (debug)")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(AppTheme.ink)
-                        Text("Toggle to simulate offline queueing")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(AppTheme.faintText)
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { store.isConnected },
-                        set: { store.setNetworkConnectivity($0) }
-                    ))
-                    .labelsHidden()
-                    .tint(AppTheme.accent)
-                }
-#endif
-
                 HStack(spacing: 10) {
                     MetricChip(title: "Pending", value: "\(store.queuedCaptures.filter { $0.status == .pending || $0.status == .syncing }.count)", tint: AppTheme.butter)
                     MetricChip(title: "Failed", value: "\(store.queuedCaptures.filter { $0.status == .failed }.count)", tint: AppTheme.coral)
@@ -415,6 +511,22 @@ struct SettingsView: View {
                 if store.isSyncingQueue {
                     ProgressView("Syncing queue...")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
+                }
+
+                if let syncedAt = store.lastQueueSyncSuccessAt {
+                    Text("Last successful sync: \(syncedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                } else if let attempted = store.lastQueueSyncAttemptAt {
+                    Text("Last sync attempt: \(attempted.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                }
+
+                if let operationalError = store.lastOperationalErrorMessage {
+                    Text(operationalError)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.error)
                 }
 
                 Button {
@@ -432,15 +544,64 @@ struct SettingsView: View {
         }
     }
 
-    private var aboutCard: some View {
-        SpeakCard(padding: 16, cornerRadius: 22, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
+    private var dataCard: some View {
+        SpeakCard(padding: 16, cornerRadius: 22) {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "About", subtitle: "App information")
-                settingsRow("App Name", "Speakance")
-                settingsRow("Platform", "iOS")
-                settingsRow("Voice Limit (Paid)", "50 / day")
-                settingsRow("Recording Length", "15 seconds")
-                settingsRow("History", "Editable")
+                SectionHeader(title: "Data", subtitle: "Export CSV and backup/restore local data")
+
+                Button {
+                    exportCSVForSharing()
+                } label: {
+                    Label("Export Expenses CSV", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.white)
+                        .background(AppTheme.ink.opacity(0.9), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                HStack(spacing: 10) {
+                    Button {
+                        do {
+                            backupExportDocument = try BackupJSONDocument(data: store.makeBackupJSONData())
+                            isExportingBackup = true
+                        } catch {
+                            backupActionMessage = "Backup export failed: \(error.localizedDescription)"
+                        }
+                    } label: {
+                        Label("Export Backup", systemImage: "tray.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundStyle(AppTheme.ink)
+                            .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color(uiColor: .separator).opacity(0.2), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        isImportingBackup = true
+                    } label: {
+                        Label("Import Backup", systemImage: "tray.and.arrow.down")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundStyle(AppTheme.ink)
+                            .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color(uiColor: .separator).opacity(0.2), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let backupActionMessage {
+                    Text(backupActionMessage)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.faintText)
+                }
             }
         }
     }
@@ -462,11 +623,99 @@ struct SettingsView: View {
         let summary = method.aliases.prefix(3).joined(separator: " • ")
         return summary.isEmpty ? "No aliases" : summary
     }
+
+    private func budgetRow(_ snapshot: BudgetUsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(snapshot.rule.categoryName)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(AppTheme.ink)
+                Spacer()
+                Text("\(CurrencyFormatter.string(snapshot.spent, currency: store.defaultCurrencyCode)) / \(CurrencyFormatter.string(snapshot.rule.monthlyLimit, currency: store.defaultCurrencyCode))")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(snapshot.isOverBudget ? AppTheme.error : AppTheme.faintText)
+            }
+
+            ProgressView(value: min(1, snapshot.progressRatio))
+                .tint(snapshot.isOverBudget ? AppTheme.error : AppTheme.accent)
+
+            HStack {
+                Text(snapshot.isOverBudget ? "Over budget" : "Remaining \(CurrencyFormatter.string(snapshot.remaining, currency: store.defaultCurrencyCode))")
+                    .font(.caption)
+                    .foregroundStyle(snapshot.isOverBudget ? AppTheme.error : AppTheme.faintText)
+                Spacer()
+                Button(role: .destructive) {
+                    store.removeBudgetRule(snapshot.rule.id)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var exportDateStamp: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: .now)
+    }
+
+    private func exportCSVForSharing() {
+        do {
+            let csv = store.exportExpensesCSV()
+            guard let data = csv.data(using: .utf8) else {
+                backupActionMessage = "CSV export failed: could not encode text."
+                return
+            }
+            let filename = "speakance-expenses-\(exportDateStamp)-\(UUID().uuidString.prefix(8)).csv"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            try data.write(to: url, options: .atomic)
+            csvShareItem = CSVShareItem(url: url)
+        } catch {
+            backupActionMessage = "CSV export failed: \(error.localizedDescription)"
+        }
+    }
 }
 
 private struct CategoryBankTemplate {
     let name: String
     let hints: [String]
+}
+
+private struct BackupJSONDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        self.data = data
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct CSVShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }
 
 struct SettingsView_Previews: PreviewProvider {
