@@ -10,6 +10,8 @@ struct FeedView: View {
     @State private var toastMessage: String?
     @State private var toastUndoExpenseID: UUID?
     @State private var toastDismissTask: Task<Void, Never>?
+    @State private var selectedPermanentDeleteID: UUID?
+    @State private var showingClearAllRecentlyDeletedConfirmation = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -217,7 +219,9 @@ struct FeedView: View {
                     onDelete: {
                         store.deleteQueueItem(item)
                         showToast("Queue item deleted.", undoExpenseID: nil)
-                    }
+                    },
+                    deletePromptTitle: "Delete queue item?",
+                    deletePromptMessage: "This removes it from your local queue."
                 ) {
                     queueRow(item)
                 }
@@ -249,7 +253,9 @@ struct FeedView: View {
                         onDelete: {
                             store.deleteExpense(expense)
                             showToast("Expense moved to Recently Deleted.", undoExpenseID: expense.id)
-                        }
+                        },
+                        deletePromptTitle: "Move expense to Recently Deleted?",
+                        deletePromptMessage: "You can restore it for 30 days."
                     ) {
                         if savedLayout == .cards {
                             expenseRow(expense)
@@ -264,11 +270,28 @@ struct FeedView: View {
 
     private var recentlyDeletedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(
-                title: "Recently Deleted",
-                subtitle: "Items are kept for 30 days",
-                trailing: "\(store.recentlyDeletedExpenses.count)"
-            )
+            HStack(alignment: .bottom) {
+                SectionHeader(
+                    title: "Recently Deleted",
+                    subtitle: "Items are kept for 30 days",
+                    trailing: "\(store.recentlyDeletedExpenses.count)"
+                )
+                if store.recentlyDeletedExpenses.count > 1 {
+                    Menu {
+                        Button(role: .destructive) {
+                            showingClearAllRecentlyDeletedConfirmation = true
+                        } label: {
+                            Label("Clear All", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(AppTheme.faintText)
+                            .padding(.leading, 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
 
             ForEach(store.recentlyDeletedExpenses) { entry in
                 SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
@@ -294,23 +317,62 @@ struct FeedView: View {
                                 .font(.system(size: 11, weight: .medium, design: .rounded))
                                 .foregroundStyle(AppTheme.faintText)
                             Spacer()
-                            Button("Delete Now") {
-                                store.permanentlyDeleteRecentlyDeletedExpense(entry.id)
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(AppTheme.error)
-
-                            Button("Restore") {
-                                store.restoreRecentlyDeletedExpense(entry.id)
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(AppTheme.accent)
+                            Text("Long press for actions")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(AppTheme.faintText)
                         }
                     }
                 }
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button {
+                        store.restoreRecentlyDeletedExpense(entry.id)
+                        showToast("Expense restored.", undoExpenseID: nil)
+                    } label: {
+                        Label("Restore", systemImage: "arrow.uturn.backward")
+                    }
+
+                    Button(role: .destructive) {
+                        selectedPermanentDeleteID = entry.id
+                    } label: {
+                        Label("Delete Permanently", systemImage: "trash")
+                    }
+                }
             }
+        }
+        .confirmationDialog(
+            "Delete permanently?",
+            isPresented: Binding(
+                get: { selectedPermanentDeleteID != nil },
+                set: { if !$0 { selectedPermanentDeleteID = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let id = selectedPermanentDeleteID {
+                    store.permanentlyDeleteRecentlyDeletedExpense(id)
+                    showToast("Expense permanently deleted.", undoExpenseID: nil)
+                }
+                selectedPermanentDeleteID = nil
+            }
+            Button("Cancel", role: .cancel) {
+                selectedPermanentDeleteID = nil
+            }
+        } message: {
+            Text("This cannot be undone.")
+        }
+        .confirmationDialog(
+            "Clear all recently deleted?",
+            isPresented: $showingClearAllRecentlyDeletedConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                store.clearAllRecentlyDeletedExpenses()
+                showToast("Recently Deleted cleared.", undoExpenseID: nil)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently deletes all items in Recently Deleted.")
         }
     }
 
@@ -744,166 +806,36 @@ struct FeedView_Previews: PreviewProvider {
 private struct SwipeRevealExpenseRow<Content: View>: View {
     let onTap: () -> Void
     let onDelete: () -> Void
+    let deletePromptTitle: String
+    let deletePromptMessage: String
     @ViewBuilder let content: () -> Content
 
-    @State private var revealedOffset: CGFloat = 0
-    @State private var rowWidth: CGFloat = 0
-    @State private var deleting = false
-    @State private var deleteTravelOffset: CGFloat = 0
-    @GestureState private var dragTranslation: CGFloat = 0
-
-    private let actionWidth: CGFloat = 112
-    private let rowCornerRadius: CGFloat = 20
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .leading) {
-                deleteBackground
-
-                content()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard !deleting else { return }
-                        if revealedOffset > 0 {
-                            withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
-                                revealedOffset = 0
-                            }
-                        } else {
-                            onTap()
-                        }
-                    }
-                    .offset(x: currentOffset)
-                    .simultaneousGesture(dragGesture)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear
-                                .onAppear { rowWidth = proxy.size.width }
-                                .onChange(of: proxy.size.width) { _, newValue in
-                                    rowWidth = newValue
-                                }
-                        }
-                    )
+        content()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTap()
             }
-
-            if revealedOffset > 0, !deleting {
-                HStack {
-                    Spacer()
-                    Button(role: .destructive) {
-                        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                            revealedOffset = 0
-                        }
-                        onDelete()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "trash.fill")
-                                .font(.system(size: 12, weight: .bold))
-                            Text("Delete")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-    }
-
-    private var currentOffset: CGFloat {
-        if deleting {
-            return deleteTravelOffset
-        }
-        let raw = max(0, revealedOffset + dragTranslation)
-        if raw <= actionWidth {
-            return raw
-        }
-        // Rubber-band past the reveal width so it doesn't feel "stuck" while dragging.
-        let overshoot = raw - actionWidth
-        return actionWidth + (overshoot * 0.22)
-    }
-
-    private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 16, coordinateSpace: .local)
-            .updating($dragTranslation) { value, state, _ in
-                guard !deleting else { return }
-                let horizontal = abs(value.translation.width)
-                let vertical = abs(value.translation.height)
-                guard horizontal > 8, horizontal > vertical else { return }
-                state = value.translation.width
-            }
-            .onEnded { value in
-                guard !deleting else { return }
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let proposed = min(max(0, revealedOffset + value.translation.width), actionWidth)
-                withAnimation(.interactiveSpring(response: 0.2, dampingFraction: 0.92, blendDuration: 0.05)) {
-                    revealedOffset = proposed > actionWidth * 0.33 ? actionWidth : 0
+            .contextMenu {
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
-    }
-
-    private var deleteBackground: some View {
-        let revealProgress = max(0, min(1, currentOffset / actionWidth))
-        let fullWidth = max(rowWidth, 1)
-        let revealWidth = deleting ? fullWidth : max(0, currentOffset)
-        let backgroundWidth = deleting ? fullWidth : revealWidth
-
-        return ZStack(alignment: .leading) {
-            if backgroundWidth > 0.5 {
-                Color.red
-                    .frame(width: min(max(0, backgroundWidth), fullWidth))
-                    .clipShape(
-                        deleting
-                        ? AnyShape(RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous))
-                        : AnyShape(LeadingActionShape(cornerRadius: rowCornerRadius))
-                    )
-                    .overlay(alignment: .leading) {
-                        Image(systemName: "trash.fill")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: max(44, min(actionWidth, max(0, backgroundWidth))), alignment: .center)
-                            .opacity(deleting ? 1 : max(0.18, revealProgress))
-                    }
-                    .allowsHitTesting(false)
+            .confirmationDialog(
+                deletePromptTitle,
+                isPresented: $showingDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    onDelete()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text(deletePromptMessage)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !deleting else { return }
-            guard currentOffset > 0 else { return }
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                revealedOffset = 0
-            }
-        }
-        .overlay(alignment: .leading) {
-            EmptyView()
-        }
-    }
-}
-
-private struct LeadingActionShape: Shape {
-    let cornerRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        guard rect.width > 0, rect.height > 0 else { return Path() }
-        let r = min(cornerRadius, rect.height / 2, rect.width)
-        var path = Path()
-        path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - r),
-            control: CGPoint(x: rect.minX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX + r, y: rect.minY),
-            control: CGPoint(x: rect.minX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.closeSubpath()
-        return path
     }
 }

@@ -212,6 +212,8 @@ enum CurrencyFormatter {
         minimumFractionDigits: Int = 0,
         maximumFractionDigits: Int = 2
     ) -> String {
+        lock.lock()
+        defer { lock.unlock() }
         let formatter = formatterFor(
             currency: currency,
             minimumFractionDigits: minimumFractionDigits,
@@ -226,8 +228,6 @@ enum CurrencyFormatter {
         maximumFractionDigits: Int
     ) -> NumberFormatter {
         let key = "\(currency)|\(minimumFractionDigits)|\(maximumFractionDigits)"
-        lock.lock()
-        defer { lock.unlock() }
 
         if let existing = formatters[key] {
             return existing

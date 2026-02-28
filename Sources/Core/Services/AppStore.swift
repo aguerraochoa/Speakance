@@ -399,6 +399,31 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func clearAllRecentlyDeletedExpenses() {
+        let entries = recentlyDeletedExpenses
+        guard !entries.isEmpty else { return }
+        recentlyDeletedExpenses.removeAll()
+        persistRecentlyDeletedExpenses()
+
+        Task { [apiClient] in
+            var failed: [RecentlyDeletedExpenseEntry] = []
+            for entry in entries {
+                do {
+                    try await apiClient.deleteExpense(entry.expense.id)
+                } catch {
+                    failed.append(entry)
+                }
+            }
+
+            guard !failed.isEmpty else { return }
+            await MainActor.run {
+                recentlyDeletedExpenses = failed + recentlyDeletedExpenses
+                persistRecentlyDeletedExpenses()
+                lastOperationalErrorMessage = "Some items could not be permanently deleted on server."
+            }
+        }
+    }
+
     func setNetworkConnectivity(_ isConnected: Bool) {
         networkMonitor.setDebugConnectivity(isConnected)
     }
@@ -820,6 +845,9 @@ final class AppStore: ObservableObject {
                 try await apiClient.syncMetadata(snapshot)
             } catch {
                 logOperationalError("Metadata sync failed", details: ["error": error.localizedDescription])
+                // Keep pending changes marked dirty so we can retry later.
+                metadataSyncDirty = true
+                break
             }
         }
     }
@@ -848,12 +876,14 @@ final class AppStore: ObservableObject {
 
     private func refreshExpensesFromServer() async {
         guard isConnected else { return }
+        purgeExpiredRecentlyDeletedExpenses()
         do {
             let remoteExpenses = try await apiClient.fetchExpenses()
             let hiddenIDs = Set(recentlyDeletedExpenses.map(\.id))
             let visibleRemoteExpenses = remoteExpenses.filter { !hiddenIDs.contains($0.id) }
-            if !visibleRemoteExpenses.isEmpty || expenses.isEmpty {
-                expenses = Self.deduplicatedExpenses(visibleRemoteExpenses)
+            let deduplicatedRemote = Self.deduplicatedExpenses(visibleRemoteExpenses)
+            if deduplicatedRemote != expenses {
+                expenses = deduplicatedRemote
                 persistExpenses()
             }
         } catch {
