@@ -7,9 +7,6 @@ struct FeedView: View {
     @State private var selectedCardFilter: SavedCardFilter = .all
     @State private var selectedMonthFilter: SavedMonthFilter = .currentMonth
     @State private var savedLayout: SavedExpenseLayout = .cards
-    @State private var toastMessage: String?
-    @State private var toastUndoExpenseID: UUID?
-    @State private var toastDismissTask: Task<Void, Never>?
     @State private var selectedPermanentDeleteID: UUID?
     @State private var showingClearAllRecentlyDeletedConfirmation = false
 
@@ -64,11 +61,6 @@ struct FeedView: View {
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
 
-                if let toastMessage {
-                    toastBanner(toastMessage, bottomInset: proxy.safeAreaInsets.bottom)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .zIndex(5)
-                }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -212,14 +204,16 @@ struct FeedView: View {
             )
 
             ForEach(store.queuedCaptures) { item in
+                let allowsDelete = store.canDeleteQueueItem(item)
                 SwipeRevealExpenseRow(
                     onTap: {
                         if item.status == .needsReview { store.openReview(for: item) }
                     },
                     onDelete: {
                         store.deleteQueueItem(item)
-                        showToast("Queue item deleted.", undoExpenseID: nil)
                     },
+                    allowsDelete: allowsDelete,
+                    cornerRadius: 20,
                     deletePromptTitle: "Delete queue item?",
                     deletePromptMessage: "This removes it from your local queue."
                 ) {
@@ -248,12 +242,14 @@ struct FeedView: View {
                 }
             } else {
                 ForEach(filteredExpenses) { expense in
+                    let rowCornerRadius: CGFloat = savedLayout == .cards ? 20 : 14
                     SwipeRevealExpenseRow(
                         onTap: { store.openReview(for: expense) },
                         onDelete: {
                             store.deleteExpense(expense)
-                            showToast("Expense moved to Recently Deleted.", undoExpenseID: expense.id)
                         },
+                        allowsDelete: true,
+                        cornerRadius: rowCornerRadius,
                         deletePromptTitle: "Move expense to Recently Deleted?",
                         deletePromptMessage: "You can restore it for 30 days."
                     ) {
@@ -270,27 +266,25 @@ struct FeedView: View {
 
     private var recentlyDeletedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .bottom) {
+            HStack(alignment: .center) {
                 SectionHeader(
                     title: "Recently Deleted",
                     subtitle: "Items are kept for 30 days",
                     trailing: "\(store.recentlyDeletedExpenses.count)"
                 )
-                if store.recentlyDeletedExpenses.count > 1 {
-                    Menu {
-                        Button(role: .destructive) {
-                            showingClearAllRecentlyDeletedConfirmation = true
-                        } label: {
-                            Label("Clear All", systemImage: "trash")
-                        }
+                Menu {
+                    Button(role: .destructive) {
+                        showingClearAllRecentlyDeletedConfirmation = true
                     } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(AppTheme.faintText)
-                            .padding(.leading, 6)
+                        Label("Clear All", systemImage: "trash")
                     }
-                    .buttonStyle(.plain)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(AppTheme.faintText)
+                        .padding(.leading, 6)
                 }
+                .buttonStyle(.plain)
             }
 
             ForEach(store.recentlyDeletedExpenses) { entry in
@@ -324,10 +318,10 @@ struct FeedView: View {
                     }
                 }
                 .contentShape(Rectangle())
+                .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .contextMenu {
                     Button {
                         store.restoreRecentlyDeletedExpense(entry.id)
-                        showToast("Expense restored.", undoExpenseID: nil)
                     } label: {
                         Label("Restore", systemImage: "arrow.uturn.backward")
                     }
@@ -351,7 +345,6 @@ struct FeedView: View {
             Button("Delete", role: .destructive) {
                 if let id = selectedPermanentDeleteID {
                     store.permanentlyDeleteRecentlyDeletedExpense(id)
-                    showToast("Expense permanently deleted.", undoExpenseID: nil)
                 }
                 selectedPermanentDeleteID = nil
             }
@@ -368,7 +361,6 @@ struct FeedView: View {
         ) {
             Button("Clear All", role: .destructive) {
                 store.clearAllRecentlyDeletedExpenses()
-                showToast("Recently Deleted cleared.", undoExpenseID: nil)
             }
             Button("Cancel", role: .cancel) { }
         } message: {
@@ -480,7 +472,7 @@ struct FeedView: View {
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(AppTheme.ink)
                     if let confidence = expense.parseConfidence {
-                        Text("\(Int(confidence * 100))%")
+                        Text("\(displayConfidencePercent(for: expense, rawConfidence: confidence))%")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundStyle(AppTheme.faintText)
                     }
@@ -570,6 +562,43 @@ struct FeedView: View {
         }
     }
 
+    private func displayConfidencePercent(for expense: ExpenseRecord, rawConfidence: Double) -> Int {
+        var confidence = rawConfidence
+        let narrative = [expense.rawText ?? "", expense.description ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+
+        let category = expense.category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !category.isEmpty {
+            // Reward explicit category mention in the spoken/text input.
+            let normalizedNarrativeWords = Set(
+                narrative.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+            )
+            let categoryWords = category.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+            if !categoryWords.isEmpty && categoryWords.allSatisfy({ normalizedNarrativeWords.contains($0) }) {
+                confidence += 0.04
+            }
+        }
+
+        if expense.amount > 0 {
+            confidence += 0.015
+        }
+
+        let wordCount = (expense.description ?? "")
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .count
+        if wordCount >= 3 {
+            confidence += 0.015
+        }
+
+        if category == "other" {
+            confidence -= 0.04
+        }
+
+        let clamped = min(0.99, max(0.40, confidence))
+        return Int((clamped * 100).rounded())
+    }
+
     private var filteredSavedExpenses: [ExpenseRecord] {
         store.expenses.filter { expense in
             matchesTripFilter(expense) && matchesCardFilter(expense) && matchesMonthFilter(expense)
@@ -640,62 +669,6 @@ struct FeedView: View {
         }
     }
 
-    @ViewBuilder
-    private func toastBanner(_ message: String, bottomInset: CGFloat) -> some View {
-        VStack {
-            Spacer(minLength: 0)
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(AppTheme.success)
-                Text(message)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(AppTheme.ink)
-                    .lineLimit(2)
-                Spacer(minLength: 0)
-                if let undoExpenseID = toastUndoExpenseID {
-                    Button("Undo") {
-                        store.restoreRecentlyDeletedExpense(undoExpenseID)
-                        dismissToast()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(AppTheme.accent)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(AppTheme.cardStrong, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(uiColor: .separator).opacity(0.22), lineWidth: 1)
-            )
-            .padding(.horizontal, 16)
-            .padding(.bottom, max(12, bottomInset + 58))
-        }
-    }
-
-    private func showToast(_ message: String, undoExpenseID: UUID?) {
-        toastDismissTask?.cancel()
-        toastUndoExpenseID = undoExpenseID
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
-            toastMessage = message
-        }
-        toastDismissTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                dismissToast()
-            }
-        }
-    }
-
-    private func dismissToast() {
-        withAnimation(.easeOut(duration: 0.18)) {
-            toastMessage = nil
-            toastUndoExpenseID = nil
-        }
-    }
 }
 
 private enum FeedMode: CaseIterable {
@@ -806,6 +779,8 @@ struct FeedView_Previews: PreviewProvider {
 private struct SwipeRevealExpenseRow<Content: View>: View {
     let onTap: () -> Void
     let onDelete: () -> Void
+    let allowsDelete: Bool
+    let cornerRadius: CGFloat
     let deletePromptTitle: String
     let deletePromptMessage: String
     @ViewBuilder let content: () -> Content
@@ -814,15 +789,18 @@ private struct SwipeRevealExpenseRow<Content: View>: View {
 
     var body: some View {
         content()
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .onTapGesture {
                 onTap()
             }
             .contextMenu {
-                Button(role: .destructive) {
-                    showingDeleteConfirmation = true
-                } label: {
-                    Label("Delete", systemImage: "trash")
+                if allowsDelete {
+                    Button(role: .destructive) {
+                        showingDeleteConfirmation = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
             }
             .confirmationDialog(

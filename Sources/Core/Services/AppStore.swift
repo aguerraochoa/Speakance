@@ -324,6 +324,7 @@ final class AppStore: ObservableObject {
     }
 
     func deleteQueueItem(_ item: QueuedCapture) {
+        guard canDeleteQueueItem(item) else { return }
         if let idx = queuedCaptures.firstIndex(where: { $0.id == item.id }) {
             let removed = queuedCaptures.remove(at: idx)
             cleanupLocalAudioFileIfNeeded(for: removed)
@@ -333,6 +334,15 @@ final class AppStore: ObservableObject {
                 activeReview = nil
             }
         }
+    }
+
+    func canDeleteQueueItem(_ item: QueuedCapture) -> Bool {
+        let hasLinkedExpense = expenses.contains { expense in
+            if expense.clientExpenseID == item.clientExpenseID { return true }
+            if let serverExpenseID = item.serverExpenseID, expense.id == serverExpenseID { return true }
+            return false
+        }
+        return !hasLinkedExpense
     }
 
     func deleteExpense(_ expense: ExpenseRecord) {
