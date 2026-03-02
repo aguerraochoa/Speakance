@@ -2,7 +2,6 @@ import SwiftUI
 
 struct FeedView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var selectedMode: FeedMode = .saved
     @State private var selectedTripFilter: SavedTripFilter = .all
     @State private var selectedCardFilter: SavedCardFilter = .all
     @State private var selectedMonthFilter: SavedMonthFilter = .currentMonth
@@ -16,30 +15,13 @@ struct FeedView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         header
-                        modeSwitcher
-                        if selectedMode == .queue {
-                            queueHealthCard
+                        if !visibleQueueItems.isEmpty {
+                            queueSection
                         }
-
-                        if selectedMode == .saved {
-                            savedFiltersBar
-                            expensesSection
-                            if !store.recentlyDeletedExpenses.isEmpty {
-                                recentlyDeletedSection
-                            }
-                        }
-
-                        if selectedMode == .queue {
-                            if store.queuedCaptures.isEmpty {
-                                SpeakCard(padding: 16, cornerRadius: 20) {
-                                    Text("Queue is empty.")
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundStyle(AppTheme.muted)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            } else {
-                                queueSection
-                            }
+                        savedFiltersBar
+                        expensesSection
+                        if !store.recentlyDeletedExpenses.isEmpty {
+                            recentlyDeletedSection
                         }
                     }
                     .padding(.horizontal, 16)
@@ -100,51 +82,9 @@ struct FeedView: View {
                         value: CurrencyFormatter.string(store.monthlySpendTotal, currency: store.defaultCurrencyCode),
                         tint: AppTheme.accent
                     )
-                    MetricChip(title: "Queue", value: "\(store.queuedCaptures.filter { $0.status != .saved }.count)", tint: AppTheme.sky)
+                    MetricChip(title: "Queue", value: "\(visibleQueueItems.count)", tint: AppTheme.sky)
                 }
             }
-        }
-    }
-
-    private var queueHealthCard: some View {
-        SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    MetricChip(title: "Pending", value: "\(pendingQueueCount)", tint: AppTheme.butter)
-                    MetricChip(title: "Failed", value: "\(failedQueueCount)", tint: AppTheme.coral)
-                }
-
-                HStack {
-                    Text(lastSyncLabel)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(AppTheme.faintText)
-                    Spacer()
-                    if failedQueueCount > 0 {
-                        Button {
-                            store.retryFailedQueueItems()
-                        } label: {
-                            Label("Retry All", systemImage: "arrow.clockwise")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(AppTheme.error)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var modeSwitcher: some View {
-        HStack(spacing: 8) {
-            ForEach(FeedMode.allCases, id: \.self) { mode in
-                Button {
-                    selectedMode = mode
-                } label: {
-                    SegmentedPill(title: mode.title, isSelected: selectedMode == mode)
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
         }
     }
 
@@ -229,12 +169,12 @@ struct FeedView: View {
     private var queueSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(
-                title: "Queue",
-                subtitle: "Offline captures, sync status, review-needed items",
-                trailing: "\(store.queuedCaptures.count) items"
+                title: "Pending Queue",
+                subtitle: "Offline captures that still need sync or review",
+                trailing: queueSectionTrailingLabel
             )
 
-            ForEach(store.queuedCaptures) { item in
+            ForEach(visibleQueueItems) { item in
                 let allowsDelete = store.canDeleteQueueItem(item)
                 SwipeRevealExpenseRow(
                     onTap: {
@@ -297,12 +237,22 @@ struct FeedView: View {
 
     private var recentlyDeletedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                SectionHeader(
-                    title: "Recently Deleted",
-                    subtitle: "Items are kept for 30 days",
-                    trailing: "\(store.recentlyDeletedExpenses.count)"
-                )
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("Recently Deleted")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.ink)
+                    Spacer()
+                    Text("\(store.recentlyDeletedExpenses.count)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.muted)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(AppTheme.cardStrong, in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                        )
                 Menu {
                     Button(role: .destructive) {
                         showingClearAllRecentlyDeletedConfirmation = true
@@ -313,9 +263,12 @@ struct FeedView: View {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(AppTheme.faintText)
-                        .padding(.leading, 6)
                 }
                 .buttonStyle(.plain)
+                }
+                Text("Items are kept for 30 days")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.faintText)
             }
 
             ForEach(store.recentlyDeletedExpenses) { entry in
@@ -721,35 +674,25 @@ struct FeedView: View {
     }
 
     private var failedQueueCount: Int {
-        store.queuedCaptures.filter { $0.status == .failed }.count
+        visibleQueueItems.filter { $0.status == .failed }.count
     }
 
-    private var pendingQueueCount: Int {
-        store.queuedCaptures.filter { $0.status == .pending || $0.status == .syncing || $0.status == .needsReview }.count
+    private var reviewNeededQueueCount: Int {
+        visibleQueueItems.filter { $0.status == .needsReview }.count
     }
 
-    private var lastSyncLabel: String {
-        if let success = store.lastQueueSyncSuccessAt {
-            return "Last successful sync: \(success.formatted(date: .abbreviated, time: .shortened))"
+    private var queueSectionTrailingLabel: String {
+        let total = visibleQueueItems.count
+        if reviewNeededQueueCount > 0 {
+            return "\(total) items • \(reviewNeededQueueCount) review"
         }
-        if let attempted = store.lastQueueSyncAttemptAt {
-            return "Last sync attempt: \(attempted.formatted(date: .abbreviated, time: .shortened))"
-        }
-        return "No sync attempts yet."
+        return "\(total) items"
     }
 
-}
-
-private enum FeedMode: CaseIterable {
-    case saved
-    case queue
-
-    var title: String {
-        switch self {
-        case .saved: return "Saved"
-        case .queue: return "Queue"
-        }
+    private var visibleQueueItems: [QueuedCapture] {
+        store.queuedCaptures.filter { $0.status != .saved }
     }
+
 }
 
 private enum SavedCardFilter: Hashable {

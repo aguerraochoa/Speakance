@@ -39,6 +39,9 @@ export default function SupportPage() {
         <p>
           Use the <Link href="/auth/reset">password reset page</Link> if you arrived from a reset email link.
         </p>
+
+        <h2>Account deletion</h2>
+        <p>In the iOS app, go to Settings → Account → Delete Account to permanently remove your account.</p>
       </section>
     </main>
   );

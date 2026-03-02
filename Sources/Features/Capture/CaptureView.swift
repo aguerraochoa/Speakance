@@ -31,7 +31,7 @@ struct CaptureView: View {
                 .padding(.top, max(12, proxy.safeAreaInsets.top > 0 ? 6 : 14))
                 .padding(.bottom, max(20, proxy.safeAreaInsets.bottom + 8))
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: proxy.size.height - 8, alignment: .top)
+                .frame(minHeight: max(0, proxy.size.height - 8), alignment: .top)
             }
             .background(AppCanvasBackground())
         }
@@ -56,16 +56,6 @@ struct CaptureView: View {
         .sheet(isPresented: $showingTripSheet) {
             TripPickerSheet()
                 .environmentObject(store)
-        }
-        .toolbar {
-            ToolbarItem(placement: .keyboard) {
-                HStack {
-                    Spacer()
-                    Button("Done") {
-                        isQuickTextFocused = false
-                    }
-                }
-            }
         }
     }
 

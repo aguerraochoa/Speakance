@@ -12,7 +12,7 @@ Small Next.js site for:
 ## Local development
 
 ```bash
-cd /Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/ios/Speakance/web
+cd /Users/andresguerra/Documents/Non-Work/Apps/Speakance/web
 npm install
 npm run dev
 ```

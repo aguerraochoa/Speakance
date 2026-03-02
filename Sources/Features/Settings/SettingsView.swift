@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var isExportingCSV = false
     @State private var isImportingBackup = false
     @State private var backupActionMessage: String?
+    @State private var showingDeleteAccountConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -84,6 +85,19 @@ struct SettingsView: View {
                 backupActionMessage = "Backup import cancelled: \(error.localizedDescription)"
             }
         }
+        .alert(
+            "Delete account?",
+            isPresented: $showingDeleteAccountConfirmation,
+            actions: {
+                Button("Delete Account", role: .destructive) {
+                    Task { await authStore.deleteAccount() }
+                }
+                Button("Cancel", role: .cancel) {}
+            },
+            message: {
+                Text("This permanently deletes your account and synced data. This action cannot be undone.")
+            }
+        )
     }
 
     private var tutorialCard: some View {
@@ -120,29 +134,51 @@ struct SettingsView: View {
 
                     if case let .signedIn(session) = authStore.state {
                         settingsRow("Email", session.userEmail ?? "Signed in")
+                        Button {
+                            Task { await authStore.signOut() }
+                        } label: {
+                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .foregroundStyle(AppTheme.error)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(AppTheme.error.opacity(0.08))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(AppTheme.error.opacity(0.18), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(authStore.isWorking)
+
+                        Button(role: .destructive) {
+                            showingDeleteAccountConfirmation = true
+                        } label: {
+                            Label("Delete Account", systemImage: "trash")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .foregroundStyle(AppTheme.error)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(AppTheme.error.opacity(0.08))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(AppTheme.error.opacity(0.18), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(authStore.isWorking)
                     } else {
                         settingsRow("Status", "Signed out")
+                        Text("Sign in to access account actions.")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(AppTheme.faintText)
                     }
-
-                    Button {
-                        Task { await authStore.signOut() }
-                    } label: {
-                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                            .foregroundStyle(AppTheme.error)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(AppTheme.error.opacity(0.08))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(AppTheme.error.opacity(0.18), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(authStore.isWorking)
                 }
             }
         }

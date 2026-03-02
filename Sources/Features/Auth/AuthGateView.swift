@@ -4,6 +4,8 @@ struct AuthGateView: View {
     @EnvironmentObject private var authStore: AuthStore
     @State private var mode: AuthMode = .signIn
     @State private var showPassword = false
+    @State private var email = ""
+    @State private var password = ""
     @FocusState private var focusedField: Field?
 
     private enum Field {
@@ -94,7 +96,7 @@ struct AuthGateView: View {
         VStack(spacing: 14) {
             VStack(spacing: 12) {
                 fieldContainer {
-                    TextField("Email", text: $authStore.email)
+                    TextField("Email", text: $email)
                         .keyboardType(.emailAddress)
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
@@ -108,9 +110,9 @@ struct AuthGateView: View {
                     HStack(spacing: 10) {
                         Group {
                             if showPassword {
-                                TextField("Password", text: $authStore.password)
+                                TextField("Password", text: $password)
                             } else {
-                                SecureField("Password", text: $authStore.password)
+                                SecureField("Password", text: $password)
                             }
                         }
                         .textInputAutocapitalization(.never)
@@ -148,7 +150,7 @@ struct AuthGateView: View {
                     if mode == .signIn {
                         Button("Forgot password?") {
                             focusedField = nil
-                            Task { await authStore.sendPasswordReset() }
+                            Task { await authStore.sendPasswordReset(email: email) }
                         }
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(Color.black.opacity(0.55))
@@ -242,68 +244,108 @@ struct AuthGateView: View {
         case .signedOut:
             EmptyView()
         case .loading:
-            SpeakCard(padding: 14, cornerRadius: 18) {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Authenticating…")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            statusCard(
+                icon: "bolt.horizontal.fill",
+                title: "Authenticating…",
+                message: "Validating your session and preparing sync.",
+                accent: AppTheme.accent,
+                background: [Color(red: 0.95, green: 0.97, blue: 1.0), Color.white]
+            )
         case let .pendingEmailVerification(email):
-            SpeakCard(padding: 14, cornerRadius: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Check your email")
-                        .font(.headline)
-                        .foregroundStyle(AppTheme.ink)
-                    Text("Supabase may require email confirmation before sign in. Check \(email).")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            statusCard(
+                icon: "envelope.badge",
+                title: "Check your email",
+                message: "Supabase may require email confirmation before sign in. Check \(email).",
+                accent: AppTheme.sky,
+                background: [Color(red: 0.94, green: 0.98, blue: 1.0), Color.white]
+            )
         case let .passwordResetEmailSent(email):
-            SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.success.opacity(0.22)) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Reset email sent")
-                        .font(.headline)
-                        .foregroundStyle(AppTheme.success)
-                    Text("If an account exists for \(email), a password reset link has been sent.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.muted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            statusCard(
+                icon: "checkmark.circle.fill",
+                title: "Reset email sent",
+                message: "If an account exists for \(email), a password reset link has been sent.",
+                accent: AppTheme.success,
+                background: [Color(red: 0.95, green: 1.0, blue: 0.96), Color.white]
+            )
         case let .error(message):
-            SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.error.opacity(0.25)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Auth Error")
-                        .font(.headline)
-                        .foregroundStyle(AppTheme.error)
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.muted)
-                    Button("Dismiss") {
-                        authStore.dismissErrorIfNeeded()
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.accent)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if isCredentialErrorMessage(message) {
+                statusCard(
+                    icon: "key.fill",
+                    title: "Incorrect email or password",
+                    message: "Double-check your credentials or use “Forgot password?”",
+                    accent: AppTheme.warning,
+                    background: [Color(red: 1.0, green: 0.985, blue: 0.94), Color.white]
+                )
+            } else {
+                statusCard(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "Couldn’t sign you in",
+                    message: message,
+                    accent: AppTheme.error,
+                    background: [Color(red: 1.0, green: 0.965, blue: 0.965), Color.white]
+                )
             }
         case .signedIn:
             EmptyView()
         }
     }
 
+    private func statusCard(
+        icon: String,
+        title: String,
+        message: String,
+        accent: Color,
+        background: [Color]
+    ) -> some View {
+        SpeakCard(
+            padding: 14,
+            cornerRadius: 20,
+            fill: AnyShapeStyle(
+                LinearGradient(
+                    colors: background,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            ),
+            stroke: accent.opacity(0.24)
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    ZStack {
+                        Circle()
+                            .fill(accent.opacity(0.16))
+                            .frame(width: 28, height: 28)
+                        Image(systemName: icon)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(accent)
+                    }
+                    Text(title)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(AppTheme.ink)
+                }
+
+                Text(message)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(AppTheme.muted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func isCredentialErrorMessage(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("incorrect email or password")
+            || normalized.contains("invalid login credentials")
+            || normalized.contains("invalid credentials")
+    }
+
     private func submit() {
         focusedField = nil
         Task {
             if mode == .signIn {
-                await authStore.signIn()
+                await authStore.signIn(email: email, password: password)
             } else {
-                await authStore.signUp()
+                await authStore.signUp(email: email, password: password)
             }
         }
     }

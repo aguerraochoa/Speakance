@@ -73,7 +73,7 @@ export default function PrivacyPage() {
         <ul>
           <li>You can use text capture instead of voice capture</li>
           <li>You can edit or delete expenses inside the app</li>
-          <li>You can remove your account data by contacting support</li>
+          <li>You can permanently delete your account from Settings → Account → Delete Account in the app</li>
         </ul>
 
         <h2>Contact</h2>

@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var authStore: AuthStore
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -31,11 +32,23 @@ struct ContentView: View {
                 .interactiveDismissDisabled()
         }
         .task {
+            await authStore.validateSessionWithServerIfNeeded()
             store.beginInteractiveTutorialIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await authStore.validateSessionWithServerIfNeeded()
+            }
         }
         .task(id: authStore.currentAccessToken) {
             if case .signedIn = authStore.state, authStore.currentAccessToken != nil {
                 await store.refreshCloudStateFromServer()
+                await store.syncQueueIfPossible()
+            }
+        }
+        .task(id: authStore.cloudMutationPermission) {
+            if authStore.cloudMutationPermission == .allowed {
                 await store.syncQueueIfPossible()
             }
         }

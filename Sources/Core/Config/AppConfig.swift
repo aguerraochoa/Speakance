@@ -55,11 +55,19 @@ enum AppBootstrap {
 
         let remote = SupabaseFunctionExpenseAPIClient(
             config: config,
-            accessTokenProvider: { await authStore.validAccessToken() }
+            accessTokenProvider: { await authStore.validAccessToken() },
+            unauthorizedRecoveryProvider: { await authStore.recoverSessionAfterUnauthorized() },
+            authenticationFailureHandler: { _ in
+                // Re-validate auth state without force-signing out on a single API 401.
+                await authStore.validateSessionWithServerIfNeeded()
+            }
         )
 
         let apiClient: ExpenseAPIClientProtocol = remote
-        let appStore = AppStore(apiClient: apiClient)
+        let appStore = AppStore(
+            apiClient: apiClient,
+            cloudMutationPermissionProvider: { await MainActor.run { authStore.cloudMutationPermission } }
+        )
         return Bundle(appStore: appStore, authStore: authStore)
     }
 }

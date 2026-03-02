@@ -3,13 +3,24 @@ import Foundation
 struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     let config: SupabaseAppConfig
     var accessTokenProvider: @Sendable () async -> String?
+    var unauthorizedRecoveryProvider: @Sendable () async -> String? = { nil }
+    var authenticationFailureHandler: @Sendable (String?) async -> Void = { _ in }
     var session: URLSession = .shared
     var voiceCapturesBucket = "voice-captures"
 
     func parseExpense(_ request: ParseExpenseRequestDTO) async throws -> ParseExpenseResponseDTO {
-        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
-            throw ExpenseAPIError.missingAuthSession
+        try await executeCloudMutationWithSingleAuthRetry(operation: "parseExpense") { accessToken in
+            logNetwork("parseExpense request", details: [
+                "clientExpenseID": request.clientExpenseID.uuidString,
+                "source": request.source.rawValue,
+                "hasAudioPath": request.localAudioFilePath == nil ? "no" : "yes",
+                "token": tokenSummary(accessToken)
+            ])
+            return try await parseExpense(request, accessToken: accessToken)
         }
+    }
+
+    private func parseExpense(_ request: ParseExpenseRequestDTO, accessToken: String) async throws -> ParseExpenseResponseDTO {
         let url = try makeFunctionsURL()
 
         var urlRequest = URLRequest(url: url)
@@ -33,6 +44,10 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         guard let http = response as? HTTPURLResponse else {
             throw ExpenseAPIError.invalidResponse
         }
+        logNetwork("parseExpense response", details: [
+            "status": "\(http.statusCode)",
+            "clientExpenseID": request.clientExpenseID.uuidString
+        ])
 
         let decoder = JSONDecoder()
         let apiResponse: SupabaseParseExpenseResponsePayload
@@ -91,7 +106,14 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             )
 
         case 401:
-            throw ExpenseAPIError.unauthorized
+            let body = String(data: data, encoding: .utf8) ?? ""
+            let reason = apiResponse.error ?? apiResponse.message ?? (body.isEmpty ? "Unauthorized" : body)
+            logNetwork("parseExpense unauthorized", details: [
+                "clientExpenseID": request.clientExpenseID.uuidString,
+                "reason": reason,
+                "token": tokenSummary(accessToken)
+            ])
+            throw ExpenseAPIError.unauthorized(reason)
         case 429:
             throw ExpenseAPIError.limitExceeded(apiResponse.error ?? "Daily voice limit reached")
         default:
@@ -101,66 +123,64 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     func updateExpense(_ request: UpdateExpenseRequestDTO) async throws {
-        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
-            throw ExpenseAPIError.missingAuthSession
-        }
+        try await executeCloudMutationWithSingleAuthRetry(operation: "updateExpense") { accessToken in
+            var urlRequest = URLRequest(url: try makeRestURL(path: "expenses", queryItems: [
+                URLQueryItem(name: "id", value: "eq.\(request.expenseID.uuidString)"),
+                URLQueryItem(name: "select", value: "id"),
+            ]))
+            urlRequest.httpMethod = "PATCH"
+            urlRequest.timeoutInterval = 20
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+            urlRequest.setValue("representation", forHTTPHeaderField: "Prefer")
+            urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+            urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
-        var urlRequest = URLRequest(url: try makeRestURL(path: "expenses", queryItems: [
-            URLQueryItem(name: "id", value: "eq.\(request.expenseID.uuidString)"),
-            URLQueryItem(name: "select", value: "id"),
-        ]))
-        urlRequest.httpMethod = "PATCH"
-        urlRequest.timeoutInterval = 20
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue("representation", forHTTPHeaderField: "Prefer")
-        urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
-        urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            let payload = ExpenseUpdatePayload(from: request)
+            urlRequest.httpBody = try JSONEncoder().encode(payload)
 
-        let payload = ExpenseUpdatePayload(from: request)
-        urlRequest.httpBody = try JSONEncoder().encode(payload)
-
-        let (data, response) = try await session.data(for: urlRequest)
-        guard let http = response as? HTTPURLResponse else { throw ExpenseAPIError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 { throw ExpenseAPIError.unauthorized }
-            throw ExpenseAPIError.server(String(data: data, encoding: .utf8) ?? "Failed to update expense")
+            let (data, response) = try await session.data(for: urlRequest)
+            guard let http = response as? HTTPURLResponse else { throw ExpenseAPIError.invalidResponse }
+            guard (200..<300).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw ExpenseAPIError.unauthorized(String(data: data, encoding: .utf8))
+                }
+                throw ExpenseAPIError.server(String(data: data, encoding: .utf8) ?? "Failed to update expense")
+            }
         }
     }
 
     func deleteExpense(_ expenseID: UUID) async throws {
-        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
-            throw ExpenseAPIError.missingAuthSession
-        }
+        try await executeCloudMutationWithSingleAuthRetry(operation: "deleteExpense") { accessToken in
+            var urlRequest = URLRequest(url: try makeRestURL(path: "expenses", queryItems: [
+                URLQueryItem(name: "id", value: "eq.\(expenseID.uuidString)"),
+                URLQueryItem(name: "select", value: "id"),
+            ]))
+            urlRequest.httpMethod = "DELETE"
+            urlRequest.timeoutInterval = 20
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+            urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+            urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
-        var urlRequest = URLRequest(url: try makeRestURL(path: "expenses", queryItems: [
-            URLQueryItem(name: "id", value: "eq.\(expenseID.uuidString)"),
-            URLQueryItem(name: "select", value: "id"),
-        ]))
-        urlRequest.httpMethod = "DELETE"
-        urlRequest.timeoutInterval = 20
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
-        urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: urlRequest)
-        guard let http = response as? HTTPURLResponse else { throw ExpenseAPIError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 { throw ExpenseAPIError.unauthorized }
-            throw ExpenseAPIError.server(String(data: data, encoding: .utf8) ?? "Failed to delete expense")
+            let (data, response) = try await session.data(for: urlRequest)
+            guard let http = response as? HTTPURLResponse else { throw ExpenseAPIError.invalidResponse }
+            guard (200..<300).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw ExpenseAPIError.unauthorized(String(data: data, encoding: .utf8))
+                }
+                throw ExpenseAPIError.server(String(data: data, encoding: .utf8) ?? "Failed to delete expense")
+            }
         }
     }
 
     func syncMetadata(_ snapshot: UserMetadataSyncSnapshotDTO) async throws {
-        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
-            throw ExpenseAPIError.missingAuthSession
+        try await executeCloudMutationWithSingleAuthRetry(operation: "syncMetadata") { accessToken in
+            try await syncProfilePreferences(snapshot, accessToken: accessToken)
+            let remoteSnapshot = try await fetchMetadataInternal(accessToken: accessToken)
+            try await syncCategories(snapshot.categories, remote: remoteSnapshot.categories, accessToken: accessToken)
+            try await syncTrips(snapshot.trips, remote: remoteSnapshot.trips, accessToken: accessToken)
+            try await syncPaymentMethods(snapshot.paymentMethods, remote: remoteSnapshot.paymentMethods, accessToken: accessToken)
         }
-
-        try await syncProfilePreferences(snapshot, accessToken: accessToken)
-        let remoteSnapshot = try await fetchMetadataInternal(accessToken: accessToken)
-        try await syncCategories(snapshot.categories, remote: remoteSnapshot.categories, accessToken: accessToken)
-        try await syncTrips(snapshot.trips, remote: remoteSnapshot.trips, accessToken: accessToken)
-        try await syncPaymentMethods(snapshot.paymentMethods, remote: remoteSnapshot.paymentMethods, accessToken: accessToken)
     }
 
     func fetchMetadata() async throws -> UserMetadataSyncSnapshotDTO? {
@@ -247,7 +267,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         }
 
         guard let userID = jwtSubject(from: accessToken) else {
-            throw ExpenseAPIError.unauthorized
+            throw ExpenseAPIError.unauthorized("Access token is missing user subject.")
         }
 
         let objectPath = makeVoiceObjectPath(
@@ -273,7 +293,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: responseData, encoding: .utf8) ?? "Upload failed"
             if http.statusCode == 401 || http.statusCode == 403 {
-                throw ExpenseAPIError.unauthorized
+                throw ExpenseAPIError.unauthorized(body)
             }
             throw ExpenseAPIError.server("Voice upload failed: \(body)")
         }
@@ -404,7 +424,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     private func fetchProfile(accessToken: String) async throws -> RESTProfile? {
-        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let decoder = makeSupabaseDecoder()
         var request = makeJSONRequest(
             url: try makeRestURL(path: "profiles", queryItems: [
@@ -521,7 +541,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         remote: [CategoryDefinition],
         accessToken: String
     ) async throws {
-        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let localIDs = Set(local.map(\.id))
         let remoteCustomIDs = Set(remote.filter { !$0.isDefault }.map(\.id))
         let deleteIDs = remoteCustomIDs.subtracting(localIDs)
@@ -578,7 +598,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     private func syncTrips(_ local: [TripRecord], remote: [TripRecord], accessToken: String) async throws {
-        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let localIDs = Set(local.map(\.id))
         let remoteIDs = Set(remote.map(\.id))
         let deleteIDs = remoteIDs.subtracting(localIDs)
@@ -609,7 +629,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         remote: [PaymentMethod],
         accessToken: String
     ) async throws {
-        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let localIDs = Set(local.map(\.id))
         let remoteIDs = Set(remote.map(\.id))
         let deleteIDs = remoteIDs.subtracting(localIDs)
@@ -659,7 +679,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     private func syncProfilePreferences(_ snapshot: UserMetadataSyncSnapshotDTO, accessToken: String) async throws {
-        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized }
+        guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let currency = (snapshot.defaultCurrencyCode ?? "USD")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
@@ -679,9 +699,77 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     private func validateREST(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { throw ExpenseAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 { throw ExpenseAPIError.unauthorized }
-            throw ExpenseAPIError.server(String(data: data, encoding: .utf8) ?? "Supabase REST request failed")
+            let body = String(data: data, encoding: .utf8) ?? ""
+            if http.statusCode == 401 || http.statusCode == 403 {
+                logNetwork("REST unauthorized", details: [
+                    "status": "\(http.statusCode)",
+                    "body": body.isEmpty ? "<empty>" : body
+                ])
+            } else {
+                logNetwork("REST error", details: [
+                    "status": "\(http.statusCode)",
+                    "body": body.isEmpty ? "<empty>" : body
+                ])
+            }
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw ExpenseAPIError.unauthorized(body)
+            }
+            throw ExpenseAPIError.server(body.isEmpty ? "Supabase REST request failed" : body)
         }
+    }
+
+    private func executeCloudMutationWithSingleAuthRetry<T>(
+        operation: String,
+        _ action: (String) async throws -> T
+    ) async throws -> T {
+        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
+            logNetwork("\(operation) blocked: missing auth session")
+            throw ExpenseAPIError.missingAuthSession
+        }
+        do {
+            return try await action(accessToken)
+        } catch let ExpenseAPIError.unauthorized(reason) {
+            logNetwork("\(operation) unauthorized, attempting single refresh retry", details: [
+                "reason": reason ?? "Unauthorized"
+            ])
+            guard let refreshedAccessToken = await unauthorizedRecoveryProvider(), !refreshedAccessToken.isEmpty else {
+                await authenticationFailureHandler(reason)
+                throw ExpenseAPIError.unauthorized(reason)
+            }
+            do {
+                return try await action(refreshedAccessToken)
+            } catch let ExpenseAPIError.unauthorized(refreshedReason) {
+                await authenticationFailureHandler(refreshedReason ?? reason)
+                throw ExpenseAPIError.unauthorized(refreshedReason ?? reason)
+            }
+        }
+    }
+
+    private func tokenSummary(_ token: String) -> String {
+        let payload = jwtPayload(from: token)
+        let issuer = (payload?["iss"] as? String) ?? "<none>"
+        let role = (payload?["role"] as? String) ?? "<none>"
+        let audience = (payload?["aud"] as? String) ?? "<none>"
+        let subject = (payload?["sub"] as? String) ?? "<none>"
+        let expEpoch = payload?["exp"] as? TimeInterval
+        let now = Date().timeIntervalSince1970
+        let expiresInSec = expEpoch.map { Int($0 - now) } ?? -1
+        return "iss=\(issuer) role=\(role) aud=\(audience) subTail=\(String(subject.suffix(8))) expiresInSec=\(expiresInSec) chars=\(token.count)"
+    }
+
+    private func logNetwork(_ message: String, details: [String: String] = [:]) {
+        #if DEBUG
+        let suffix: String
+        if details.isEmpty {
+            suffix = ""
+        } else {
+            suffix = " " + details
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: " ")
+        }
+        print("[Speakance][API] \(message)\(suffix)")
+        #endif
     }
 
     private func makeSupabaseDecoder() -> JSONDecoder {
@@ -716,7 +804,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
             return try await primary.parseExpense(request)
         } catch ExpenseAPIError.missingAuthSession {
             return try await fallback.parseExpense(request)
-        } catch ExpenseAPIError.unauthorized {
+        } catch ExpenseAPIError.unauthorized(_) {
             return try await fallback.parseExpense(request)
         }
     }
@@ -726,7 +814,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
             try await primary.updateExpense(request)
         } catch ExpenseAPIError.missingAuthSession {
             return
-        } catch ExpenseAPIError.unauthorized {
+        } catch ExpenseAPIError.unauthorized(_) {
             return
         }
     }
@@ -736,7 +824,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
             try await primary.deleteExpense(expenseID)
         } catch ExpenseAPIError.missingAuthSession {
             return
-        } catch ExpenseAPIError.unauthorized {
+        } catch ExpenseAPIError.unauthorized(_) {
             return
         }
     }
@@ -746,7 +834,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
             try await primary.syncMetadata(snapshot)
         } catch ExpenseAPIError.missingAuthSession {
             return
-        } catch ExpenseAPIError.unauthorized {
+        } catch ExpenseAPIError.unauthorized(_) {
             return
         }
     }
@@ -756,7 +844,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
             return try await primary.fetchMetadata()
         } catch ExpenseAPIError.missingAuthSession {
             return nil
-        } catch ExpenseAPIError.unauthorized {
+        } catch ExpenseAPIError.unauthorized(_) {
             return nil
         }
     }
@@ -766,7 +854,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
             return try await primary.fetchExpenses()
         } catch ExpenseAPIError.missingAuthSession {
             return []
-        } catch ExpenseAPIError.unauthorized {
+        } catch ExpenseAPIError.unauthorized(_) {
             return []
         }
     }
@@ -774,7 +862,7 @@ struct FallbackExpenseAPIClient: ExpenseAPIClientProtocol {
 
 enum ExpenseAPIError: LocalizedError {
     case missingAuthSession
-    case unauthorized
+    case unauthorized(String?)
     case invalidResponse
     case server(String)
     case limitExceeded(String)
@@ -783,7 +871,11 @@ enum ExpenseAPIError: LocalizedError {
         switch self {
         case .missingAuthSession:
             return "Sign in is required before syncing to the server."
-        case .unauthorized:
+        case let .unauthorized(message):
+            let cleaned = message?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let cleaned, !cleaned.isEmpty, cleaned.lowercased() != "unauthorized" {
+                return cleaned
+            }
             return "Your session expired. Please sign in again."
         case .invalidResponse:
             return "The server returned an invalid response."

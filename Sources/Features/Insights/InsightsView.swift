@@ -112,10 +112,12 @@ struct InsightsView: View {
 
         return source.map { category, value in
             let doubleValue = NSDecimalNumber(decimal: value).doubleValue
+            let rawRatio = total > 0 ? (doubleValue / total) : 0
+            let safeRatio = rawRatio.isFinite ? max(0, min(1, rawRatio)) : 0
             return DonutSegment(
                 category: category,
                 amount: value,
-                ratio: max(0, min(1, doubleValue / total)),
+                ratio: safeRatio,
                 color: category == "More" ? Color(uiColor: .systemGray4) : AppTheme.categoryColor(category)
             )
         }
@@ -654,7 +656,9 @@ private struct MonthlyCategoryStackedChartView: View {
 
         GeometryReader { proxy in
             let height = max(1, proxy.size.height)
-            let barHeight = CGFloat(monthTotal / maxTotal) * height
+            let rawBarRatio = monthTotal / maxTotal
+            let barRatio = rawBarRatio.isFinite ? max(0, min(1, rawBarRatio)) : 0
+            let barHeight = CGFloat(barRatio) * height
 
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
@@ -662,11 +666,13 @@ private struct MonthlyCategoryStackedChartView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(month.segments.reversed())) { segment in
                             let amount = NSDecimalNumber(decimal: segment.amount).doubleValue
+                            let rawSegmentRatio = monthTotal > 0 ? (amount / monthTotal) : 0
+                            let segmentRatio = rawSegmentRatio.isFinite ? max(0, rawSegmentRatio) : 0
                             let isSelected = selection?.month == month.month && selection?.category == segment.category
                             let isDimmed = selection != nil && !isSelected
                             Rectangle()
                                 .fill(segment.color)
-                                .frame(height: max(2, barHeight * CGFloat(amount / monthTotal)))
+                                .frame(height: max(2, barHeight * CGFloat(segmentRatio)))
                                 .opacity(isDimmed ? 0.28 : 1)
                                 .contentShape(Rectangle())
                                 .onTapGesture {

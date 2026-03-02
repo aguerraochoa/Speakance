@@ -31,17 +31,22 @@ final class AppStore: ObservableObject {
     private let queueStore: QueueStoreProtocol
     private let expenseLedgerStore: ExpenseLedgerStoreProtocol
     private let apiClient: ExpenseAPIClientProtocol
+    private let cloudMutationPermissionProvider: @Sendable () async -> AuthStore.CloudMutationPermission
     private let syncEngine = SyncEngine()
     private let metaStore = LocalMetaStore()
     private let recentlyDeletedStore = LocalRecentlyDeletedStore()
     private var isSyncingMetadata = false
     private var metadataSyncDirty = false
     private var didEvaluateFirstRunTutorial = false
+    private var nextQueueSyncAllowedAt: Date = .distantPast
+    private static let authRequiredRetryCooldownSeconds: TimeInterval = 60
+    private static let cancellationRetryCooldownSeconds: TimeInterval = 3
 
     init(
         queueStore: QueueStoreProtocol = FileQueueStore(),
         expenseLedgerStore: ExpenseLedgerStoreProtocol = FileExpenseLedgerStore(),
         apiClient: ExpenseAPIClientProtocol = MockExpenseAPIClient(),
+        cloudMutationPermissionProvider: @escaping @Sendable () async -> AuthStore.CloudMutationPermission = { .allowed },
         networkMonitor: NetworkMonitor? = nil,
         audioCaptureService: AudioCaptureService? = nil
     ) {
@@ -50,6 +55,7 @@ final class AppStore: ObservableObject {
         self.queueStore = queueStore
         self.expenseLedgerStore = expenseLedgerStore
         self.apiClient = apiClient
+        self.cloudMutationPermissionProvider = cloudMutationPermissionProvider
         self.networkMonitor = resolvedNetworkMonitor
         self.audioCaptureService = resolvedAudioCaptureService
         self.isConnected = resolvedNetworkMonitor.isConnected
@@ -184,6 +190,9 @@ final class AppStore: ObservableObject {
     func syncQueueIfPossible() async {
         guard await syncEngine.canSync(networkIsConnected: isConnected) else { return }
         guard !isSyncingQueue else { return }
+        guard queuedCaptures.contains(where: { $0.status == .pending }) else { return }
+        guard Date() >= nextQueueSyncAllowedAt else { return }
+        guard await canPerformCloudMutation(authRequiredMessage: "Queue sync paused (auth required)") else { return }
 
         lastQueueSyncAttemptAt = .now
         isSyncingQueue = true
@@ -273,6 +282,16 @@ final class AppStore: ObservableObject {
                         "clientExpenseID": queuedCaptures[index].clientExpenseID.uuidString,
                         "error": error.localizedDescription
                     ])
+                    nextQueueSyncAllowedAt = Date().addingTimeInterval(Self.authRequiredRetryCooldownSeconds)
+                    break
+                }
+
+                if Self.isCancellationError(error) {
+                    // Cancellation is usually caused by app lifecycle/auth transitions; keep item retryable.
+                    queuedCaptures[index].status = .pending
+                    queuedCaptures[index].lastError = nil
+                    hadFailure = true
+                    nextQueueSyncAllowedAt = Date().addingTimeInterval(Self.cancellationRetryCooldownSeconds)
                     break
                 }
 
@@ -289,7 +308,24 @@ final class AppStore: ObservableObject {
         }
     }
 
+    private func canPerformCloudMutation(authRequiredMessage: String) async -> Bool {
+        switch await cloudMutationPermissionProvider() {
+        case .allowed:
+            nextQueueSyncAllowedAt = .distantPast
+            logOperationalInfo("Cloud mutation allowed")
+            return true
+        case .authPending:
+            logOperationalInfo("Cloud mutation waiting for auth validation")
+            return false
+        case .authRequired:
+            logOperationalError(authRequiredMessage)
+            nextQueueSyncAllowedAt = Date().addingTimeInterval(Self.authRequiredRetryCooldownSeconds)
+            return false
+        }
+    }
+
     func retryFailedQueueItems() {
+        nextQueueSyncAllowedAt = .distantPast
         for idx in queuedCaptures.indices where queuedCaptures[idx].status == .failed || queuedCaptures[idx].status == .pending {
             queuedCaptures[idx].status = .pending
             queuedCaptures[idx].lastError = nil
@@ -299,6 +335,7 @@ final class AppStore: ObservableObject {
     }
 
     func retryQueueItem(_ queueID: UUID) {
+        nextQueueSyncAllowedAt = .distantPast
         guard let idx = queuedCaptures.firstIndex(where: { $0.id == queueID }) else { return }
         guard queuedCaptures[idx].status == .failed || queuedCaptures[idx].status == .pending else { return }
         queuedCaptures[idx].status = .pending
@@ -364,19 +401,15 @@ final class AppStore: ObservableObject {
         normalizedDraft.amountText = NSDecimalNumber(decimal: parsedAmount).stringValue
 
         saveParsedDraft(normalizedDraft, queueID: context.queueID, existingExpenseID: context.expenseID, markAsEdited: true)
-        if let expenseID = context.expenseID {
-            Task { [apiClient] in
-                do {
-                    try await apiClient.updateExpense(UpdateExpenseRequestDTO(expenseID: expenseID, draft: normalizedDraft))
-                } catch {
-                    await MainActor.run {
-                        lastOperationalErrorMessage = "Could not update expense on server. Local changes were kept."
-                        #if DEBUG
-                        print("[Speakance] remote expense update failed id=\(expenseID.uuidString): \(error.localizedDescription)")
-                        #endif
-                    }
-                }
+        let remoteExpenseIDForUpdate: UUID? = {
+            if let expenseID = context.expenseID {
+                return expenseID
             }
+            guard let queueID = context.queueID else { return nil }
+            return queuedCaptures.first(where: { $0.id == queueID })?.serverExpenseID
+        }()
+        if let remoteExpenseIDForUpdate {
+            triggerRemoteExpenseUpdate(expenseID: remoteExpenseIDForUpdate, draft: normalizedDraft)
         }
         if let queueID = context.queueID, let idx = queuedCaptures.firstIndex(where: { $0.id == queueID }) {
             cleanupLocalAudioFileIfNeeded(for: queuedCaptures[idx])
@@ -464,8 +497,16 @@ final class AppStore: ObservableObject {
         guard let entry = recentlyDeletedExpenses.first(where: { $0.id == expenseID }) else { return }
         recentlyDeletedExpenses.removeAll { $0.id == expenseID }
         persistRecentlyDeletedExpenses()
-        Task { [apiClient] in
+        Task { [apiClient, cloudMutationPermissionProvider] in
             do {
+                guard await cloudMutationPermissionProvider() == .allowed else {
+                    await MainActor.run {
+                        recentlyDeletedExpenses.insert(entry, at: 0)
+                        persistRecentlyDeletedExpenses()
+                        lastOperationalErrorMessage = "Sign in is required before deleting this expense on server."
+                    }
+                    return
+                }
                 try await apiClient.deleteExpense(entry.expense.id)
             } catch {
                 await MainActor.run {
@@ -483,8 +524,16 @@ final class AppStore: ObservableObject {
         recentlyDeletedExpenses.removeAll()
         persistRecentlyDeletedExpenses()
 
-        Task { [apiClient] in
+        Task { [apiClient, cloudMutationPermissionProvider] in
             var failed: [RecentlyDeletedExpenseEntry] = []
+            guard await cloudMutationPermissionProvider() == .allowed else {
+                await MainActor.run {
+                    recentlyDeletedExpenses = entries + recentlyDeletedExpenses
+                    persistRecentlyDeletedExpenses()
+                    lastOperationalErrorMessage = "Sign in is required before deleting expenses on server."
+                }
+                return
+            }
             for entry in entries {
                 do {
                     try await apiClient.deleteExpense(entry.expense.id)
@@ -1016,7 +1065,8 @@ final class AppStore: ObservableObject {
         recentlyDeletedExpenses.removeAll { $0.deletedAt < cutoff }
         persistRecentlyDeletedExpenses()
         guard !expired.isEmpty else { return }
-        Task { [apiClient] in
+        Task { [apiClient, cloudMutationPermissionProvider] in
+            guard await cloudMutationPermissionProvider() == .allowed else { return }
             for entry in expired {
                 try? await apiClient.deleteExpense(entry.expense.id)
             }
@@ -1045,6 +1095,7 @@ final class AppStore: ObservableObject {
     private func syncMetadataToServerIfPossible() async {
         guard isConnected else { return }
         guard !isSyncingMetadata else { return }
+        guard await canPerformCloudMutation(authRequiredMessage: "Metadata sync paused (auth required)") else { return }
         isSyncingMetadata = true
         defer { isSyncingMetadata = false }
         while isConnected && metadataSyncDirty {
@@ -1171,6 +1222,30 @@ final class AppStore: ObservableObject {
             #if DEBUG
             print("[Speakance] Failed to delete local audio file: \(error)")
             #endif
+        }
+    }
+
+    private func triggerRemoteExpenseUpdate(expenseID: UUID, draft: ExpenseDraft) {
+        Task { [apiClient, cloudMutationPermissionProvider] in
+            do {
+                let permission = await cloudMutationPermissionProvider()
+                guard permission == .allowed else {
+                    await MainActor.run {
+                        lastOperationalErrorMessage = permission == .authRequired
+                            ? "Sign in is required before syncing changes to the server."
+                            : "Cloud sync is waiting for auth validation. Local changes were kept."
+                    }
+                    return
+                }
+                try await apiClient.updateExpense(UpdateExpenseRequestDTO(expenseID: expenseID, draft: draft))
+            } catch {
+                await MainActor.run {
+                    lastOperationalErrorMessage = "Could not update expense on server. Local changes were kept."
+                    #if DEBUG
+                    print("[Speakance] remote expense update failed id=\(expenseID.uuidString): \(error.localizedDescription)")
+                    #endif
+                }
+            }
         }
     }
 
@@ -1440,6 +1515,13 @@ private extension AppStore {
                 // App may have been killed while syncing; reset to pending so user can retry.
                 normalized.status = .pending
             }
+            if normalized.status == .failed, let lastError = normalized.lastError {
+                let message = lastError.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if message == "cancelled" || message.contains("canceled") {
+                    normalized.status = .pending
+                    normalized.lastError = nil
+                }
+            }
             return normalized
         }
     }
@@ -1451,6 +1533,15 @@ private extension AppStore {
         default:
             return false
         }
+    }
+
+    static func isCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return true }
+        let normalized = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "cancelled" || normalized.contains("canceled")
     }
 
     static func deduplicatedExpenses(_ items: [ExpenseRecord]) -> [ExpenseRecord] {

@@ -197,14 +197,34 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: authData, error: authError } = await adminClient.auth.getUser(bearerToken);
-    if (authError || !authData.user) {
+    const authResolution = await validateUserFromBearerToken({
+      supabaseUrl,
+      supabaseAnonKey,
+      adminClient,
+      bearerToken,
+    });
+    if (!authResolution.user) {
+      console.error(
+        "[parse-expense] auth validation failed",
+        {
+          reason: authResolution.error ?? "Unauthorized",
+          token: summarizeJwtForLogs(bearerToken),
+        },
+      );
       return json(
-        { status: "error", error: authError?.message || "Unauthorized" } satisfies ParseExpenseResponse,
+        { status: "error", error: authResolution.error || "Unauthorized" } satisfies ParseExpenseResponse,
         401,
       );
     }
-    const user = authData.user;
+    console.log(
+      "[parse-expense] auth validation succeeded",
+      {
+        strategy: authResolution.strategy,
+        userID: authResolution.user.id,
+        token: summarizeJwtForLogs(bearerToken),
+      },
+    );
+    const user = authResolution.user;
     cleanupUserID = user.id;
 
     const body = (await req.json()) as ParseExpenseRequest;
@@ -246,6 +266,7 @@ Deno.serve(async (req) => {
       body,
       adminClient,
       openAiApiKey,
+      userID: user.id,
     });
     const rawText = inputResolution.text;
     if (!rawText) {
@@ -268,6 +289,7 @@ Deno.serve(async (req) => {
       currencyHint: body.currency_hint,
       defaultCurrency: profile?.default_currency ?? undefined,
       capturedAtDevice: body.captured_at_device,
+      timezone: tz,
       categoryContext: parserCategoryContext,
     });
 
@@ -277,6 +299,7 @@ Deno.serve(async (req) => {
         apiKey: openAiApiKey,
         rawText,
         capturedAtDevice: body.captured_at_device,
+        timezone: tz,
         currencyHint: body.currency_hint,
         languageHint: body.language_hint,
         defaultCurrency: profile?.default_currency ?? undefined,
@@ -395,6 +418,7 @@ async function resolveInputText(opts: {
   body: ParseExpenseRequest;
   adminClient: ReturnType<typeof createClient>;
   openAiApiKey: string | undefined;
+  userID: string;
 }): Promise<{ text: string | null; error: string | null }> {
   const rawTextCandidate = opts.body.raw_text?.trim();
   const rawText = rawTextCandidate && !isVoicePlaceholderText(rawTextCandidate) ? rawTextCandidate : null;
@@ -404,10 +428,18 @@ async function resolveInputText(opts: {
 
   const storageObjectPath = opts.body.storage_object_path?.trim();
   if (storageObjectPath) {
+    const requestedBucket = opts.body.storage_bucket?.trim();
+    if (requestedBucket && requestedBucket !== VOICE_CAPTURES_BUCKET) {
+      return { text: null, error: "Invalid voice storage bucket." };
+    }
+    if (!storageObjectPath.startsWith(`${opts.userID}/`)) {
+      return { text: null, error: "Invalid voice storage object path." };
+    }
+
     const transcribed = await transcribeVoiceCaptureFromStorage({
       adminClient: opts.adminClient,
       openAiApiKey: opts.openAiApiKey,
-      bucket: (opts.body.storage_bucket?.trim() || VOICE_CAPTURES_BUCKET),
+      bucket: VOICE_CAPTURES_BUCKET,
       objectPath: storageObjectPath,
       languageHint: normalizeLanguageHint(opts.body.language_hint),
     });
@@ -497,8 +529,7 @@ async function deleteUploadedVoiceCaptureIfPresent(
   if (!objectPath) return;
   if (!objectPath.startsWith(`${userID}/`)) return;
 
-  const bucket = body.storage_bucket?.trim() || VOICE_CAPTURES_BUCKET;
-  const { error } = await adminClient.storage.from(bucket).remove([objectPath]);
+  const { error } = await adminClient.storage.from(VOICE_CAPTURES_BUCKET).remove([objectPath]);
   if (error) {
     console.error("Failed to delete uploaded voice capture", error.message);
   }
@@ -519,8 +550,11 @@ function validateRequest(body: ParseExpenseRequest): string | null {
       return "voice requests require raw_text or storage_object_path";
     }
   }
-  if (body.storage_object_path && !body.storage_bucket) {
-    // allow default bucket but keep payload explicit if supplied later
+  if (body.storage_bucket) {
+    const requestedBucket = body.storage_bucket.trim();
+    if (requestedBucket && requestedBucket !== VOICE_CAPTURES_BUCKET) {
+      return "storage_bucket must be voice-captures";
+    }
   }
   return null;
 }
@@ -718,7 +752,11 @@ async function countDailyVoiceUsage(
 
 function localDateKey(isoString: string, timeZone: string): string {
   const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime())) return dateKeyInTimeZone(new Date(), timeZone);
+  return dateKeyInTimeZone(date, timeZone);
+}
+
+function dateKeyInTimeZone(date: Date, timeZone: string): string {
   try {
     const formatter = new Intl.DateTimeFormat("en-CA", {
       timeZone,
@@ -780,6 +818,7 @@ function parseExpenseDeterministically(
     currencyHint?: string;
     defaultCurrency?: string;
     capturedAtDevice: string;
+    timezone: string;
     categoryContext: ParserCategoryContext;
   },
 ): DeterministicParse {
@@ -836,7 +875,7 @@ function parseExpenseDeterministically(
   }
   if (!opts.categoryContext.categoryNames.has(category)) category = "Other";
 
-  const expenseDate = inferExpenseDate(rawText, opts.capturedAtDevice);
+  const expenseDate = inferExpenseDate(rawText, opts.capturedAtDevice, opts.timezone);
   const builtDescription = buildDescription(rawText, {
     amountMatch: amountMatch?.[1] ?? null,
     category,
@@ -900,6 +939,7 @@ async function parseExpenseWithOpenAI(opts: {
   apiKey: string | undefined;
   rawText: string;
   capturedAtDevice: string;
+  timezone: string;
   currencyHint?: string;
   languageHint?: "en" | "es";
   defaultCurrency?: string;
@@ -907,7 +947,7 @@ async function parseExpenseWithOpenAI(opts: {
 }): Promise<ParseOutcome | null> {
   if (!opts.apiKey) return null;
 
-  const fallbackDate = new Date(opts.capturedAtDevice).toISOString().slice(0, 10);
+  const fallbackDate = localDateKey(opts.capturedAtDevice, opts.timezone);
   const defaultCurrency = (opts.currencyHint ?? opts.defaultCurrency ?? "USD").toUpperCase();
   const outputLanguageHint = normalizeLanguageHint(opts.languageHint);
 
@@ -1057,16 +1097,14 @@ function normalizeCategory(value: string, ctx: ParserCategoryContext): string {
   return "Other";
 }
 
-function inferExpenseDate(rawText: string, capturedAtDevice: string): string {
+function inferExpenseDate(rawText: string, capturedAtDevice: string, timezone = "UTC"): string {
   const base = new Date(capturedAtDevice);
-  if (Number.isNaN(base.getTime())) return new Date().toISOString().slice(0, 10);
+  if (Number.isNaN(base.getTime())) return localDateKey(new Date().toISOString(), timezone);
   const lower = rawText.toLowerCase();
   if (lower.includes("yesterday")) {
     base.setUTCDate(base.getUTCDate() - 1);
-  } else if (lower.includes("today")) {
-    // explicit today; no-op
   }
-  return base.toISOString().slice(0, 10);
+  return localDateKey(base.toISOString(), timezone);
 }
 
 function buildDescription(
@@ -1256,6 +1294,116 @@ function escapeRegex(value: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+type AuthResolution = {
+  user: { id: string } | null;
+  strategy: string | null;
+  error: string | null;
+};
+
+async function validateUserFromBearerToken(opts: {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  adminClient: ReturnType<typeof createClient>;
+  bearerToken: string;
+}): Promise<AuthResolution> {
+  const { supabaseUrl, supabaseAnonKey, adminClient, bearerToken } = opts;
+  const errors: string[] = [];
+
+  // Strategy 1: validate via service-role client.
+  try {
+    const { data, error } = await adminClient.auth.getUser(bearerToken);
+    if (!error && data.user?.id) {
+      return { user: { id: data.user.id }, strategy: "adminClient.auth.getUser", error: null };
+    }
+    if (error?.message) errors.push(`adminClient: ${error.message}`);
+  } catch (error) {
+    errors.push(`adminClient: ${String(error)}`);
+  }
+
+  // Strategy 2: validate via anon client.
+  try {
+    const anonClient = createClient(supabaseUrl, supabaseAnonKey);
+    const { data, error } = await anonClient.auth.getUser(bearerToken);
+    if (!error && data.user?.id) {
+      return { user: { id: data.user.id }, strategy: "anonClient.auth.getUser", error: null };
+    }
+    if (error?.message) errors.push(`anonClient: ${error.message}`);
+  } catch (error) {
+    errors.push(`anonClient: ${String(error)}`);
+  }
+
+  // Strategy 3: direct REST call to Auth API.
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      method: "GET",
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${bearerToken}`,
+      },
+    });
+    if (response.ok) {
+      const payload = await response.json() as { id?: string };
+      if (payload?.id) {
+        return { user: { id: payload.id }, strategy: "fetch /auth/v1/user", error: null };
+      }
+      errors.push("auth REST: user payload missing id");
+    } else {
+      const body = await response.text();
+      errors.push(`auth REST ${response.status}: ${body || "Unauthorized"}`);
+    }
+  } catch (error) {
+    errors.push(`auth REST: ${String(error)}`);
+  }
+
+  return {
+    user: null,
+    strategy: null,
+    error: errors[0] ?? "Unauthorized",
+  };
+}
+
+function summarizeJwtForLogs(token: string): Record<string, string> {
+  const payload = decodeJwtPayload(token);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const exp = typeof payload?.exp === "number" ? payload.exp : null;
+  const sub = typeof payload?.sub === "string" ? payload.sub : "";
+  const iss = typeof payload?.iss === "string" ? payload.iss : "<none>";
+  const audValue = payload?.aud;
+  const aud = typeof audValue === "string" ? audValue : Array.isArray(audValue) ? audValue.join(",") : "<none>";
+  const role = typeof payload?.role === "string" ? payload.role : "<none>";
+  const ref = extractProjectRefFromIssuer(iss);
+  return {
+    iss,
+    ref,
+    aud,
+    role,
+    subTail: sub ? sub.slice(-8) : "<none>",
+    exp: exp ? String(exp) : "<none>",
+    expiresInSec: exp ? String(exp - nowSec) : "<none>",
+    tokenChars: String(token.length),
+  };
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const raw = parts[1]
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const padded = raw + "=".repeat((4 - (raw.length % 4)) % 4);
+  try {
+    const decoded = atob(padded);
+    return JSON.parse(decoded) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function extractProjectRefFromIssuer(iss: string): string {
+  const match = iss.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i);
+  return match?.[1] ?? "<none>";
 }
 
 function json(body: ParseExpenseResponse, status: number) {

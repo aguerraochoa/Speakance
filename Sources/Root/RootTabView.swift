@@ -3,6 +3,15 @@ import SwiftUI
 struct RootTabView: View {
     @EnvironmentObject private var store: AppStore
 
+    private var queueNeedsReviewCount: Int {
+        store.queuedCaptures.filter { $0.status == .needsReview }.count
+    }
+
+    private var queueNeedsReviewBadgeText: String? {
+        guard queueNeedsReviewCount > 0 else { return nil }
+        return "\(queueNeedsReviewCount)"
+    }
+
     var body: some View {
         TabView(selection: $store.selectedTab) {
             NavigationStack {
@@ -19,6 +28,7 @@ struct RootTabView: View {
             .tabItem {
                 Label("Ledger", systemImage: "list.bullet.rectangle.portrait.fill")
             }
+            .badge(queueNeedsReviewBadgeText)
             .tag(AppTab.feed)
 
             NavigationStack {

@@ -13,15 +13,28 @@ final class AuthStore: ObservableObject {
         case error(String)
     }
 
+    enum SessionValidationState: Equatable {
+        case unknown
+        case validated
+        case invalid
+    }
+
+    enum CloudMutationPermission: Equatable {
+        case allowed
+        case authPending
+        case authRequired
+    }
+
     @Published private(set) var state: State
-    @Published var email: String = ""
-    @Published var password: String = ""
+    @Published private(set) var sessionValidationState: SessionValidationState
     @Published var isWorking = false
 
     private let client: SupabaseAuthRESTClient?
     private let sessionStorage: AuthSessionStorage
     private let tokenStore: SharedAccessTokenStore
     private let expectedSupabaseHost: String?
+    private var refreshTask: Task<UserSession?, Never>?
+    private var validationTask: Task<Void, Never>?
 
     init(
         client: SupabaseAuthRESTClient?,
@@ -39,20 +52,35 @@ final class AuthStore: ObservableObject {
 
         if client == nil {
             self.state = .disabled
+            self.sessionValidationState = .validated
+            logAuth("Initialized in disabled mode")
         } else {
             let existing = sessionStorage.load()
             if let existing, Self.isSessionCompatible(existing, expectedSupabaseHost: expectedSupabaseHost), !existing.isExpired {
-                self.state = .signedIn(existing)
-                tokenStore.set(existing.accessToken)
+                self.state = .loading
+                self.sessionValidationState = .unknown
+                tokenStore.set(nil)
+                logAuth("Found stored session at launch (non-expired)", details: sessionDebugDetails(existing))
+                Task { [weak self] in
+                    await self?.bootstrapSessionValidation()
+                }
             } else if let existing, Self.isSessionCompatible(existing, expectedSupabaseHost: expectedSupabaseHost), existing.refreshToken != nil {
                 self.state = .loading
+                self.sessionValidationState = .unknown
                 tokenStore.set(nil)
+                logAuth("Found stored session at launch (expired, has refresh token)", details: sessionDebugDetails(existing))
                 Task { [weak self] in
-                    await self?.restoreSessionIfPossible()
+                    await self?.bootstrapSessionValidation()
                 }
             } else {
                 self.state = .signedOut
+                self.sessionValidationState = .invalid
                 tokenStore.set(nil)
+                if let existing {
+                    logAuth("Discarded incompatible/invalid stored session at launch", details: sessionDebugDetails(existing))
+                } else {
+                    logAuth("No stored session at launch")
+                }
             }
         }
     }
@@ -71,52 +99,225 @@ final class AuthStore: ObservableObject {
         return nil
     }
 
+    var cloudMutationPermission: CloudMutationPermission {
+        guard isConfigured else { return .authRequired }
+        switch state {
+        case .signedIn:
+            switch sessionValidationState {
+            case .validated:
+                return .allowed
+            case .unknown:
+                // Signed-in sessions remain usable while validation is pending.
+                return .allowed
+            case .invalid:
+                return .authRequired
+            }
+        case .loading:
+            return .authPending
+        case .disabled, .signedOut, .pendingEmailVerification, .passwordResetEmailSent, .error:
+            return .authRequired
+        }
+    }
+
     func validAccessToken() async -> String? {
         guard client != nil else { return nil }
 
         if case let .signedIn(session) = state {
-            if !session.isExpired {
+            if session.expiresAtEpoch == nil {
+                // Some auth responses may omit explicit expiry; use current session token
+                // and let server validation/401 handling decide if re-auth is needed.
                 tokenStore.set(session.accessToken)
+                logAuth("Returning signed-in access token (no exp claim)", details: tokenDebugDetails(session.accessToken))
                 return session.accessToken
             }
+            if !session.isExpired {
+                tokenStore.set(session.accessToken)
+                logAuth("Returning signed-in access token", details: tokenDebugDetails(session.accessToken))
+                return session.accessToken
+            }
+            logAuth("Signed-in access token expired, attempting refresh", details: sessionDebugDetails(session))
             if let refreshed = await tryRefresh(using: session.refreshToken) {
                 return refreshed.accessToken
             }
+            logAuth("Refresh failed for signed-in state")
             return nil
         }
 
-        if case .loading = state, let stored = sessionStorage.load(), let refreshed = await tryRefresh(using: stored.refreshToken) {
-            return refreshed.accessToken
+        if case .loading = state, let stored = sessionStorage.load() {
+            guard isSessionCompatible(stored) else {
+                logAuth("Stored loading session is incompatible with expected project host", details: sessionDebugDetails(stored))
+                clearSessionLocally()
+                state = .signedOut
+                sessionValidationState = .invalid
+                return nil
+            }
+
+            if !stored.isExpired {
+                applySignedIn(stored, sessionValidationState: .unknown)
+                logAuth("Recovered access token while loading from non-expired stored session", details: tokenDebugDetails(stored.accessToken))
+                return stored.accessToken
+            }
+
+            if let refreshed = await tryRefresh(using: stored.refreshToken) {
+                logAuth("Recovered access token while loading via refresh", details: tokenDebugDetails(refreshed.accessToken))
+                return refreshed.accessToken
+            }
         }
 
         if let stored = sessionStorage.load() {
             guard isSessionCompatible(stored) else {
+                logAuth("Stored session is incompatible with expected project host", details: sessionDebugDetails(stored))
                 clearSessionLocally()
                 state = .signedOut
+                sessionValidationState = .invalid
                 return nil
             }
             if !stored.isExpired {
-                applySignedIn(stored)
+                applySignedIn(stored, sessionValidationState: .unknown)
+                logAuth("Returning stored access token while restoring session", details: tokenDebugDetails(stored.accessToken))
                 return stored.accessToken
             }
+            logAuth("Stored session expired, attempting refresh", details: sessionDebugDetails(stored))
             if let refreshed = await tryRefresh(using: stored.refreshToken) {
                 return refreshed.accessToken
             }
         }
 
+        logAuth("No valid access token available; clearing local session")
         clearSessionLocally()
         state = .signedOut
+        sessionValidationState = .invalid
         return nil
     }
 
-    func signIn() async {
+    func validateSessionWithServerIfNeeded() async {
+        if let existingTask = validationTask {
+            await existingTask.value
+            return
+        }
+
+        let task = Task<Void, Never> {
+            await performValidateSessionWithServerIfNeeded()
+        }
+        validationTask = task
+        await task.value
+        validationTask = nil
+    }
+
+    private func performValidateSessionWithServerIfNeeded() async {
         guard let client else { return }
-        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = password
+        let shouldValidate: Bool = {
+            if case .signedIn = state { return true }
+            if case .loading = state { return true }
+            return false
+        }()
+        guard shouldValidate else { return }
+        guard let token = await validAccessToken(), !token.isEmpty else {
+            logAuth("Server validation skipped because token is unavailable")
+            clearSessionLocally()
+            state = .signedOut
+            sessionValidationState = .invalid
+            return
+        }
+
+        logAuth("Validating session with Supabase /auth/v1/user", details: tokenDebugDetails(token))
+        do {
+            _ = try await client.fetchCurrentUser(accessToken: token)
+            logAuth("Session validated with server")
+            switch state {
+            case .loading:
+                if let stored = sessionStorage.load(),
+                   isSessionCompatible(stored),
+                   !stored.isExpired {
+                    applySignedIn(stored, sessionValidationState: .validated)
+                }
+            case let .signedIn(session):
+                applySignedIn(session, sessionValidationState: .validated)
+            default:
+                break
+            }
+        } catch let AuthError.unauthorized(message) {
+            logAuth("Server validation returned unauthorized", details: [
+                "reason": message,
+                "state": describeState(state)
+            ])
+            clearSessionLocally()
+            state = .signedOut
+            sessionValidationState = .invalid
+        } catch let AuthError.requestFailed(message) {
+            logAuth("Server validation request failed (keeping local session)", details: [
+                "reason": message,
+                "state": describeState(state)
+            ])
+            // Keep local session on transient server/network failures.
+            if case .loading = state,
+               let stored = sessionStorage.load(),
+               isSessionCompatible(stored),
+               !stored.isExpired {
+                applySignedIn(stored, sessionValidationState: .unknown)
+            }
+        } catch let error as URLError {
+            logAuth("Server validation transport error (keeping local session)", details: [
+                "reason": error.localizedDescription,
+                "code": "\(error.code.rawValue)"
+            ])
+            // Keep local session on transport failures.
+            if case .loading = state,
+               let stored = sessionStorage.load(),
+               isSessionCompatible(stored),
+               !stored.isExpired {
+                applySignedIn(stored, sessionValidationState: .unknown)
+            }
+        } catch {
+            logAuth("Server validation unexpected error (keeping local session)", details: [
+                "reason": error.localizedDescription
+            ])
+            // Default to preserving local session unless auth is explicitly invalid.
+            if case .loading = state,
+               let stored = sessionStorage.load(),
+               isSessionCompatible(stored),
+               !stored.isExpired {
+                applySignedIn(stored, sessionValidationState: .unknown)
+            }
+        }
+    }
+
+    func recoverSessionAfterUnauthorized() async -> String? {
+        guard client != nil else { return nil }
+
+        let refreshToken: String? = {
+            if case let .signedIn(session) = state, let token = session.refreshToken, !token.isEmpty {
+                return token
+            }
+            if let token = sessionStorage.load()?.refreshToken, !token.isEmpty {
+                return token
+            }
+            return nil
+        }()
+
+        if let refreshed = await tryRefresh(using: refreshToken) {
+            return refreshed.accessToken
+        }
+
+        clearSessionLocally()
+        state = .signedOut
+        sessionValidationState = .invalid
+        return nil
+    }
+
+    func signIn(email rawEmail: String, password rawPassword: String) async {
+        guard let client else { return }
+        let email = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = rawPassword
         guard !email.isEmpty, !password.isEmpty else {
             state = .error("Email and password are required.")
             return
         }
+
+        // Ensure a fresh sign-in never reuses stale persisted credentials.
+        clearSessionLocally()
+        sessionValidationState = .unknown
+        logAuth("Starting sign-in flow", details: ["email": email.lowercased()])
 
         isWorking = true
         defer { isWorking = false }
@@ -125,15 +326,17 @@ final class AuthStore: ObservableObject {
         do {
             let session = try await client.signIn(email: email, password: password)
             applySignedIn(session)
+            logAuth("Sign-in succeeded", details: sessionDebugDetails(session))
         } catch {
-            state = .error(error.localizedDescription)
+            logAuth("Sign-in failed", details: ["reason": error.localizedDescription])
+            state = .error(Self.userFacingSignInErrorMessage(from: error))
         }
     }
 
-    func signUp() async {
+    func signUp(email rawEmail: String, password rawPassword: String) async {
         guard let client else { return }
-        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let password = password
+        let email = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = rawPassword
         guard !email.isEmpty, !password.isEmpty else {
             state = .error("Email and password are required.")
             return
@@ -150,6 +353,7 @@ final class AuthStore: ObservableObject {
             } else {
                 clearSessionLocally()
                 state = .pendingEmailVerification(email)
+                sessionValidationState = .invalid
             }
         } catch {
             state = .error(error.localizedDescription)
@@ -157,16 +361,42 @@ final class AuthStore: ObservableObject {
     }
 
     func signOut() async {
+        logAuth("Signing out current session", details: [
+            "state": describeState(state)
+        ])
         if let client, let token = currentAccessToken {
             _ = try? await client.signOut(accessToken: token)
         }
         clearSessionLocally()
         state = .signedOut
+        sessionValidationState = .invalid
+        logAuth("Signed out")
     }
 
-    func sendPasswordReset() async {
+    func deleteAccount() async {
         guard let client else { return }
-        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let token = await validAccessToken(), !token.isEmpty else {
+            state = .error("You need an active session to delete your account.")
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+        state = .loading
+
+        do {
+            try await client.deleteAccount(accessToken: token)
+            clearSessionLocally()
+            state = .signedOut
+            sessionValidationState = .invalid
+        } catch {
+            state = .error(error.localizedDescription)
+        }
+    }
+
+    func sendPasswordReset(email rawEmail: String) async {
+        guard let client else { return }
+        let email = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !email.isEmpty else {
             state = .error("Enter your email first so we can send a reset link.")
             return
@@ -187,27 +417,34 @@ final class AuthStore: ObservableObject {
     func dismissErrorIfNeeded() {
         if case .error = state {
             if sessionStorage.load() != nil, let session = sessionStorage.load(), !session.isExpired {
-                state = .signedIn(session)
+                applySignedIn(session, sessionValidationState: .unknown)
             } else {
                 state = .signedOut
+                sessionValidationState = .invalid
             }
         }
     }
 
-    private func applySignedIn(_ session: UserSession) {
+    private func applySignedIn(_ session: UserSession, sessionValidationState: SessionValidationState = .validated) {
         guard isSessionCompatible(session) else {
+            logAuth("Rejecting incompatible session", details: sessionDebugDetails(session))
             clearSessionLocally()
             state = .error("This login session belongs to a different Supabase project. Please sign in again.")
+            self.sessionValidationState = .invalid
             return
         }
         sessionStorage.save(session)
         tokenStore.set(session.accessToken)
         state = .signedIn(session)
+        self.sessionValidationState = sessionValidationState
+        logAuth("Applied signed-in session", details: sessionDebugDetails(session))
     }
 
     private func clearSessionLocally() {
         sessionStorage.clear()
         tokenStore.set(nil)
+        sessionValidationState = .invalid
+        logAuth("Cleared local session/token cache")
     }
 
     private func restoreSessionIfPossible() async {
@@ -219,17 +456,116 @@ final class AuthStore: ObservableObject {
         }
     }
 
+    private func bootstrapSessionValidation() async {
+        logAuth("Bootstrapping session validation", details: ["state": describeState(state)])
+        await validateSessionWithServerIfNeeded()
+        if case .loading = state {
+            if let stored = sessionStorage.load(), isSessionCompatible(stored), !stored.isExpired {
+                // If we couldn't reach the server at boot, fall back to local session.
+                applySignedIn(stored, sessionValidationState: .unknown)
+                logAuth("Fell back to local session after bootstrap", details: sessionDebugDetails(stored))
+            } else {
+                // If validation couldn't establish a valid signed-in session, force explicit sign-in.
+                clearSessionLocally()
+                state = .signedOut
+                logAuth("Bootstrap ended without valid session")
+            }
+        }
+    }
+
     private func tryRefresh(using refreshToken: String?) async -> UserSession? {
-        guard let client, let refreshToken, !refreshToken.isEmpty else { return nil }
+        if let existingTask = refreshTask {
+            return await existingTask.value
+        }
+
+        let task = Task<UserSession?, Never> {
+            await performTryRefresh(using: refreshToken)
+        }
+        refreshTask = task
+        let result = await task.value
+        refreshTask = nil
+        return result
+    }
+
+    private func performTryRefresh(using refreshToken: String?) async -> UserSession? {
+        guard let client, let refreshToken, !refreshToken.isEmpty else {
+            logAuth("Refresh skipped: refresh token missing")
+            return nil
+        }
+        logAuth("Attempting token refresh")
         do {
             let refreshed = try await client.refreshSession(refreshToken: refreshToken)
             applySignedIn(refreshed)
+            logAuth("Token refresh succeeded", details: sessionDebugDetails(refreshed))
             return refreshed
         } catch {
+            logAuth("Token refresh failed", details: ["reason": error.localizedDescription])
             clearSessionLocally()
             state = .signedOut
             return nil
         }
+    }
+
+    private func describeState(_ value: State) -> String {
+        switch value {
+        case .disabled:
+            return "disabled"
+        case .signedOut:
+            return "signedOut"
+        case .loading:
+            return "loading"
+        case .signedIn:
+            return "signedIn"
+        case .pendingEmailVerification:
+            return "pendingEmailVerification"
+        case .passwordResetEmailSent:
+            return "passwordResetEmailSent"
+        case .error:
+            return "error"
+        }
+    }
+
+    private func tokenDebugDetails(_ token: String?) -> [String: String] {
+        guard let token, !token.isEmpty else { return ["token": "missing"] }
+        let payload = Self.jwtPayload(from: token)
+        let issuer = (payload?["iss"] as? String) ?? "<none>"
+        let role = (payload?["role"] as? String) ?? "<none>"
+        let audience = (payload?["aud"] as? String) ?? "<none>"
+        let subject = (payload?["sub"] as? String) ?? "<none>"
+        let expEpoch = payload?["exp"] as? TimeInterval
+        let now = Date().timeIntervalSince1970
+        let expiresInSec = expEpoch.map { Int($0 - now) }
+        return [
+            "iss": issuer,
+            "role": role,
+            "aud": audience,
+            "subTail": String(subject.suffix(8)),
+            "expiresInSec": expiresInSec.map(String.init) ?? "<none>",
+            "tokenChars": "\(token.count)"
+        ]
+    }
+
+    private func sessionDebugDetails(_ session: UserSession) -> [String: String] {
+        var details = tokenDebugDetails(session.accessToken)
+        details["hasRefresh"] = session.refreshToken?.isEmpty == false ? "yes" : "no"
+        details["isExpiredLocal"] = session.isExpired ? "yes" : "no"
+        details["expiresAtEpoch"] = session.expiresAtEpoch.map { String(Int($0)) } ?? "<none>"
+        return details
+    }
+
+    private func logAuth(_ message: String, details: [String: String] = [:]) {
+        #if DEBUG
+        let suffix: String
+        if details.isEmpty {
+            suffix = ""
+        } else {
+            suffix = " " + details
+                .sorted(by: { $0.key < $1.key })
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: " ")
+        }
+        print("[Speakance][Auth] \(message)\(suffix)")
+        #endif
     }
 
     private func isSessionCompatible(_ session: UserSession) -> Bool {
@@ -274,6 +610,45 @@ final class AuthStore: ObservableObject {
             return nil
         }
         return json
+    }
+
+    private static func userFacingSignInErrorMessage(from error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost, .cannotConnectToHost:
+                return "Couldn't connect right now. Check your connection and try again."
+            default:
+                break
+            }
+        }
+
+        let rawMessage: String = {
+            if let authError = error as? AuthError {
+                return authError.errorDescription ?? String(describing: authError)
+            }
+            return error.localizedDescription
+        }()
+
+        let normalized = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if normalized.contains("invalid login credentials")
+            || normalized.contains("invalid credentials")
+            || normalized.contains("wrong password")
+            || normalized.contains("user not found")
+            || normalized.contains("invalid email or password") {
+            return "Incorrect email or password. Try again or reset your password."
+        }
+        if normalized.contains("email not confirmed")
+            || normalized.contains("email not verified") {
+            return "Check your email to confirm your account, then try signing in."
+        }
+        if normalized.contains("too many requests")
+            || normalized.contains("rate limit")
+            || normalized.contains("429") {
+            return "Too many attempts. Wait a minute and try again."
+        }
+
+        return "Sign-in failed. Please try again."
     }
 }
 
@@ -481,6 +856,28 @@ struct SupabaseAuthRESTClient {
         return userSession
     }
 
+    func deleteAccount(accessToken: String) async throws {
+        let url = try functionsURL(path: "delete-account")
+        var request = makeJSONRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTP(response: response, data: data)
+    }
+
+    func fetchCurrentUser(accessToken: String) async throws -> AuthUserPayload {
+        let url = try authURL(path: "user")
+        var request = makeJSONRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+        try validateHTTP(response: response, data: data)
+        return try JSONDecoder().decode(AuthUserPayload.self, from: data)
+    }
+
     private func authURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
         guard var components = URLComponents(url: config.url, resolvingAgainstBaseURL: false) else {
             throw AuthError.invalidResponse("Invalid Supabase URL.")
@@ -490,6 +887,21 @@ struct SupabaseAuthRESTClient {
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let url = components.url else {
             throw AuthError.invalidResponse("Invalid Auth URL.")
+        }
+        return url
+    }
+
+    private func functionsURL(path: String) throws -> URL {
+        guard var components = URLComponents(url: config.url, resolvingAgainstBaseURL: false) else {
+            throw AuthError.invalidResponse("Invalid Supabase URL.")
+        }
+        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = "/" + [basePath, "functions", "v1", path]
+            .filter { !$0.isEmpty }
+            .joined(separator: "/")
+        components.queryItems = nil
+        guard let url = components.url else {
+            throw AuthError.invalidResponse("Invalid Functions URL.")
         }
         return url
     }
@@ -514,8 +926,11 @@ struct SupabaseAuthRESTClient {
             throw AuthError.invalidResponse("Invalid HTTP response.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONDecoder().decode(SupabaseAuthErrorResponse.self, from: data).message) ??
+            let message = (try? JSONDecoder().decode(SupabaseAuthErrorResponse.self, from: data).resolvedMessage) ??
                 (String(data: data, encoding: .utf8) ?? "Auth request failed")
+            if http.statusCode == 401 || http.statusCode == 403 {
+                throw AuthError.unauthorized(message)
+            }
             throw AuthError.requestFailed(message)
         }
     }
@@ -585,23 +1000,44 @@ private struct AuthSessionResponse: Decodable {
     }
 }
 
-private struct AuthUserPayload: Decodable {
+struct AuthUserPayload: Decodable {
     let id: String?
     let email: String?
 }
 
 private struct SupabaseAuthErrorResponse: Decodable {
-    let message: String
+    let message: String?
+    let error: String?
+    let errorDescription: String?
+    let msg: String?
+    let code: String?
+
+    var resolvedMessage: String {
+        message?.nonEmpty
+            ?? errorDescription?.nonEmpty
+            ?? msg?.nonEmpty
+            ?? error?.nonEmpty
+            ?? code?.nonEmpty
+            ?? "Auth request failed"
+    }
 }
 
 enum AuthError: LocalizedError {
+    case unauthorized(String)
     case requestFailed(String)
     case invalidResponse(String)
 
     var errorDescription: String? {
         switch self {
-        case let .requestFailed(message), let .invalidResponse(message):
+        case let .unauthorized(message), let .requestFailed(message), let .invalidResponse(message):
             return message
         }
+    }
+}
+
+private extension String {
+    var nonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
