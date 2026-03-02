@@ -39,8 +39,11 @@ final class AppStore: ObservableObject {
     private var metadataSyncDirty = false
     private var didEvaluateFirstRunTutorial = false
     private var nextQueueSyncAllowedAt: Date = .distantPast
+    private var lastCloudMutationPermissionLogged: AuthStore.CloudMutationPermission?
+    private var lastCloudMutationPermissionLogAt: Date = .distantPast
     private static let authRequiredRetryCooldownSeconds: TimeInterval = 60
     private static let cancellationRetryCooldownSeconds: TimeInterval = 3
+    private static let cloudPermissionLogThrottleSeconds: TimeInterval = 20
 
     init(
         queueStore: QueueStoreProtocol = FileQueueStore(),
@@ -309,18 +312,37 @@ final class AppStore: ObservableObject {
     }
 
     private func canPerformCloudMutation(authRequiredMessage: String) async -> Bool {
-        switch await cloudMutationPermissionProvider() {
+        let permission = await cloudMutationPermissionProvider()
+        switch permission {
         case .allowed:
             nextQueueSyncAllowedAt = .distantPast
-            logOperationalInfo("Cloud mutation allowed")
+            logCloudPermissionIfNeeded(.allowed, message: "Cloud mutation allowed")
             return true
         case .authPending:
-            logOperationalInfo("Cloud mutation waiting for auth validation")
+            logCloudPermissionIfNeeded(.authPending, message: "Cloud mutation waiting for auth validation")
             return false
         case .authRequired:
-            logOperationalError(authRequiredMessage)
+            logCloudPermissionIfNeeded(.authRequired, message: authRequiredMessage, isError: true)
             nextQueueSyncAllowedAt = Date().addingTimeInterval(Self.authRequiredRetryCooldownSeconds)
             return false
+        }
+    }
+
+    private func logCloudPermissionIfNeeded(
+        _ permission: AuthStore.CloudMutationPermission,
+        message: String,
+        isError: Bool = false
+    ) {
+        let now = Date()
+        let shouldLog = lastCloudMutationPermissionLogged != permission
+            || now.timeIntervalSince(lastCloudMutationPermissionLogAt) >= Self.cloudPermissionLogThrottleSeconds
+        guard shouldLog else { return }
+        lastCloudMutationPermissionLogged = permission
+        lastCloudMutationPermissionLogAt = now
+        if isError {
+            logOperationalError(message)
+        } else {
+            logOperationalInfo(message)
         }
     }
 

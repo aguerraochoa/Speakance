@@ -35,6 +35,8 @@ final class AuthStore: ObservableObject {
     private let expectedSupabaseHost: String?
     private var refreshTask: Task<UserSession?, Never>?
     private var validationTask: Task<Void, Never>?
+    private var lastAccessTokenReturnLogAt: Date = .distantPast
+    private static let accessTokenReturnLogThrottleSeconds: TimeInterval = 20
 
     init(
         client: SupabaseAuthRESTClient?,
@@ -127,12 +129,12 @@ final class AuthStore: ObservableObject {
                 // Some auth responses may omit explicit expiry; use current session token
                 // and let server validation/401 handling decide if re-auth is needed.
                 tokenStore.set(session.accessToken)
-                logAuth("Returning signed-in access token (no exp claim)", details: tokenDebugDetails(session.accessToken))
+                logAccessTokenReturnIfNeeded("Returning signed-in access token (no exp claim)", token: session.accessToken)
                 return session.accessToken
             }
             if !session.isExpired {
                 tokenStore.set(session.accessToken)
-                logAuth("Returning signed-in access token", details: tokenDebugDetails(session.accessToken))
+                logAccessTokenReturnIfNeeded("Returning signed-in access token", token: session.accessToken)
                 return session.accessToken
             }
             logAuth("Signed-in access token expired, attempting refresh", details: sessionDebugDetails(session))
@@ -174,13 +176,22 @@ final class AuthStore: ObservableObject {
             }
             if !stored.isExpired {
                 applySignedIn(stored, sessionValidationState: .unknown)
-                logAuth("Returning stored access token while restoring session", details: tokenDebugDetails(stored.accessToken))
+                logAccessTokenReturnIfNeeded("Returning stored access token while restoring session", token: stored.accessToken)
                 return stored.accessToken
             }
             logAuth("Stored session expired, attempting refresh", details: sessionDebugDetails(stored))
             if let refreshed = await tryRefresh(using: stored.refreshToken) {
                 return refreshed.accessToken
             }
+        }
+
+        // Avoid noisy repeated log/reset cycles when we are already signed out
+        // and there is no persisted session/token to clear.
+        if case .signedOut = state,
+           sessionValidationState == .invalid,
+           sessionStorage.load() == nil,
+           tokenStore.get() == nil {
+            return nil
         }
 
         logAuth("No valid access token available; clearing local session")
@@ -441,10 +452,14 @@ final class AuthStore: ObservableObject {
     }
 
     private func clearSessionLocally() {
+        let hadSession = sessionStorage.load() != nil
+        let hadToken = tokenStore.get() != nil
         sessionStorage.clear()
         tokenStore.set(nil)
         sessionValidationState = .invalid
-        logAuth("Cleared local session/token cache")
+        if hadSession || hadToken {
+            logAuth("Cleared local session/token cache")
+        }
     }
 
     private func restoreSessionIfPossible() async {
@@ -566,6 +581,15 @@ final class AuthStore: ObservableObject {
         }
         print("[Speakance][Auth] \(message)\(suffix)")
         #endif
+    }
+
+    private func logAccessTokenReturnIfNeeded(_ message: String, token: String) {
+        let now = Date()
+        guard now.timeIntervalSince(lastAccessTokenReturnLogAt) >= Self.accessTokenReturnLogThrottleSeconds else {
+            return
+        }
+        lastAccessTokenReturnLogAt = now
+        logAuth(message, details: tokenDebugDetails(token))
     }
 
     private func isSessionCompatible(_ session: UserSession) -> Bool {
