@@ -13,11 +13,12 @@ final class AppStore: ObservableObject {
     @Published var lastQueueSyncAttemptAt: Date?
     @Published var lastQueueSyncSuccessAt: Date?
     @Published var shouldShowOnboarding: Bool = false
+    @Published var tutorialState: TutorialState = .inactive
+    @Published var hasCompletedInteractiveTutorial: Bool = false
 
     @Published var categoryDefinitions: [CategoryDefinition] = []
     @Published var trips: [TripRecord] = []
     @Published var paymentMethods: [PaymentMethod] = []
-    @Published var budgetRules: [BudgetRule] = []
     @Published var activeTripID: UUID?
     @Published var defaultCurrencyCode: String = "USD"
     @Published var parsingLanguage: ParsingLanguage = .auto
@@ -35,6 +36,7 @@ final class AppStore: ObservableObject {
     private let recentlyDeletedStore = LocalRecentlyDeletedStore()
     private var isSyncingMetadata = false
     private var metadataSyncDirty = false
+    private var didEvaluateFirstRunTutorial = false
 
     init(
         queueStore: QueueStoreProtocol = FileQueueStore(),
@@ -55,15 +57,17 @@ final class AppStore: ObservableObject {
         self.expenses = Self.deduplicatedExpenses(expenseLedgerStore.loadExpenses())
 
         let persistedMeta = metaStore.load()
-        self.categoryDefinitions = persistedMeta.categories
+        self.categoryDefinitions = Self.deduplicatedCategories(persistedMeta.categories)
         self.trips = persistedMeta.trips
         self.paymentMethods = persistedMeta.paymentMethods
-        self.budgetRules = persistedMeta.budgetRules
         self.activeTripID = persistedMeta.activeTripID
         self.defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
         self.parsingLanguage = Self.normalizedParsingLanguage(persistedMeta.parsingLanguage) ?? .auto
         self.dailyVoiceLimit = Self.normalizedDailyVoiceLimit(persistedMeta.dailyVoiceLimit) ?? Self.defaultDailyVoiceLimit
-        self.shouldShowOnboarding = persistedMeta.hasCompletedOnboarding != true
+        let hasCompletedInteractiveTutorial = persistedMeta.hasCompletedInteractiveTutorial
+            ?? (persistedMeta.hasCompletedOnboarding == true)
+        self.hasCompletedInteractiveTutorial = hasCompletedInteractiveTutorial
+        self.shouldShowOnboarding = false
         self.recentlyDeletedExpenses = recentlyDeletedStore.load()
         resolvedAudioCaptureService.setPreferredSpeechLocaleIdentifier(self.parsingLanguage.speechLocaleIdentifier)
         purgeExpiredRecentlyDeletedExpenses()
@@ -74,6 +78,7 @@ final class AppStore: ObservableObject {
         }
 
         seedDefaultsIfNeeded()
+        relinkLocalExpenseReferences()
         Task {
             await refreshCloudStateFromServer()
             await syncQueueIfPossible()
@@ -110,10 +115,6 @@ final class AppStore: ObservableObject {
 
     var maxVoiceCaptureSeconds: Int {
         audioCaptureService.maxRecordingDurationSeconds
-    }
-
-    var activeBudgetRules: [BudgetRule] {
-        budgetRules.filter(\.isEnabled).sorted { $0.categoryName.localizedCaseInsensitiveCompare($1.categoryName) == .orderedAscending }
     }
 
     func startRecording() {
@@ -619,63 +620,63 @@ final class AppStore: ObservableObject {
         scheduleMetadataSync()
     }
 
-    func setBudgetLimit(categoryName: String, monthlyLimitText: String) {
-        let normalizedCategory = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedCategory.isEmpty else { return }
+    func beginInteractiveTutorialIfNeeded() {
+        guard !didEvaluateFirstRunTutorial else { return }
+        didEvaluateFirstRunTutorial = true
+        guard !hasCompletedInteractiveTutorial else { return }
+        startTutorial(mode: .firstRun)
+    }
 
-        let normalizedAmount = monthlyLimitText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ",", with: ".")
-
-        guard let amount = Decimal(string: normalizedAmount), amount > 0 else { return }
-        if let idx = budgetRules.firstIndex(where: { $0.categoryName.caseInsensitiveCompare(normalizedCategory) == .orderedSame }) {
-            budgetRules[idx].categoryName = normalizedCategory
-            budgetRules[idx].monthlyLimit = amount
-            budgetRules[idx].isEnabled = true
-        } else {
-            budgetRules.append(BudgetRule(categoryName: normalizedCategory, monthlyLimit: amount, isEnabled: true))
+    func startTutorial(mode: TutorialStartMode) {
+        switch mode {
+        case .firstRun:
+            selectedTab = .capture
+        case .replay:
+            break
         }
-        budgetRules.sort { $0.categoryName.localizedCaseInsensitiveCompare($1.categoryName) == .orderedAscending }
-        persistMeta()
-    }
-
-    func removeBudgetRule(_ id: UUID) {
-        budgetRules.removeAll { $0.id == id }
-        persistMeta()
-    }
-
-    func budgetUsage(for categoryName: String, in month: Date = .now) -> Decimal {
-        let calendar = Calendar.current
-        return expenses
-            .filter {
-                $0.category.caseInsensitiveCompare(categoryName) == .orderedSame &&
-                calendar.isDate($0.expenseDate, equalTo: month, toGranularity: .month)
-            }
-            .reduce(Decimal.zero) { $0 + $1.amount }
-    }
-
-    func budgetSnapshot(in month: Date = .now) -> [BudgetUsageSnapshot] {
-        activeBudgetRules.compactMap { rule in
-            let spent = budgetUsage(for: rule.categoryName, in: month)
-            return BudgetUsageSnapshot(rule: rule, spent: spent)
-        }
-        .sorted { lhs, rhs in
-            if lhs.progressRatio != rhs.progressRatio { return lhs.progressRatio > rhs.progressRatio }
-            return lhs.rule.categoryName.localizedCaseInsensitiveCompare(rhs.rule.categoryName) == .orderedAscending
-        }
-    }
-
-    var budgetAlerts: [BudgetUsageSnapshot] {
-        budgetSnapshot().filter { $0.progressRatio >= 0.8 }
-    }
-
-    func markOnboardingCompleted() {
+        tutorialState = .running(.welcome)
         shouldShowOnboarding = false
         persistMeta()
     }
 
+    func advanceTutorial() {
+        guard case let .running(step) = tutorialState else { return }
+        guard let index = TutorialStep.allCases.firstIndex(of: step) else { return }
+        let nextIndex = index + 1
+        if nextIndex < TutorialStep.allCases.count {
+            tutorialState = .running(TutorialStep.allCases[nextIndex])
+        } else {
+            completeTutorial()
+        }
+    }
+
+    func backTutorial() {
+        guard case let .running(step) = tutorialState else { return }
+        guard let index = TutorialStep.allCases.firstIndex(of: step) else { return }
+        let previousIndex = index - 1
+        guard previousIndex >= 0 else { return }
+        tutorialState = .running(TutorialStep.allCases[previousIndex])
+    }
+
+    func skipTutorial() {
+        completeTutorial()
+    }
+
+    func completeTutorial() {
+        hasCompletedInteractiveTutorial = true
+        tutorialState = .completed
+        shouldShowOnboarding = false
+        persistMeta()
+    }
+
+    func markOnboardingCompleted() {
+        completeTutorial()
+    }
+
     func resetOnboardingForDebug() {
-        shouldShowOnboarding = true
+        hasCompletedInteractiveTutorial = false
+        tutorialState = .inactive
+        shouldShowOnboarding = false
         persistMeta()
     }
 
@@ -717,7 +718,6 @@ final class AppStore: ObservableObject {
             categories: categoryDefinitions,
             trips: trips,
             paymentMethods: paymentMethods,
-            budgetRules: budgetRules,
             activeTripID: activeTripID,
             defaultCurrencyCode: defaultCurrencyCode,
             parsingLanguage: parsingLanguage.rawValue,
@@ -736,10 +736,9 @@ final class AppStore: ObservableObject {
 
         expenses = Self.deduplicatedExpenses(payload.expenses)
         queuedCaptures = Self.normalizedQueueForStartup(Self.deduplicatedQueue(payload.queuedCaptures))
-        categoryDefinitions = payload.categories
+        categoryDefinitions = Self.deduplicatedCategories(payload.categories)
         trips = payload.trips
         paymentMethods = payload.paymentMethods
-        budgetRules = payload.budgetRules
         activeTripID = payload.activeTripID
         defaultCurrencyCode = Self.normalizedCurrencyCode(payload.defaultCurrencyCode) ?? "USD"
         parsingLanguage = Self.normalizedParsingLanguage(payload.parsingLanguage) ?? .auto
@@ -976,12 +975,12 @@ final class AppStore: ObservableObject {
             categories: categoryDefinitions,
             trips: trips,
             paymentMethods: paymentMethods,
-            budgetRules: budgetRules,
             activeTripID: activeTripID,
             defaultCurrencyCode: defaultCurrencyCode,
             parsingLanguage: parsingLanguage.rawValue,
             dailyVoiceLimit: dailyVoiceLimit,
-            hasCompletedOnboarding: !shouldShowOnboarding
+            hasCompletedOnboarding: hasCompletedInteractiveTutorial,
+            hasCompletedInteractiveTutorial: hasCompletedInteractiveTutorial
         ))
     }
 
@@ -1071,6 +1070,9 @@ final class AppStore: ObservableObject {
             persistMeta()
             relinkLocalExpenseReferences()
         } catch {
+            if Self.isExpectedCancellation(error) {
+                return
+            }
             logOperationalError("Metadata fetch failed", details: ["error": error.localizedDescription])
         }
     }
@@ -1088,18 +1090,30 @@ final class AppStore: ObservableObject {
                 persistExpenses()
             }
         } catch {
+            if Self.isExpectedCancellation(error) {
+                return
+            }
             logOperationalError("Expenses fetch failed", details: ["error": error.localizedDescription])
         }
     }
 
+    private static func isExpectedCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        return false
+    }
+
     private func mergeRemoteCategories(_ remote: [CategoryDefinition]) -> [CategoryDefinition] {
         guard !remote.isEmpty else { return categoryDefinitions }
-        var merged = remote
+        var merged = Self.deduplicatedCategories(remote)
         let remoteNames = Set(remote.map { $0.name.lowercased() })
         for local in categoryDefinitions where !remoteNames.contains(local.name.lowercased()) && local.isDefault {
             merged.append(local)
         }
-        return merged.sorted { ($0.isDefault ? 0 : 1, $0.name.lowercased()) < ($1.isDefault ? 0 : 1, $1.name.lowercased()) }
+        return Self.deduplicatedCategories(merged)
     }
 
     private func relinkLocalExpenseReferences() {
@@ -1158,7 +1172,7 @@ final class AppStore: ObservableObject {
 
     private func seedDefaultsIfNeeded() {
         if categoryDefinitions.isEmpty {
-            categoryDefinitions = [
+            categoryDefinitions = Self.deduplicatedCategories([
                 CategoryDefinition(name: "Food", colorHex: "#F97316", isDefault: true, hintKeywords: ["restaurant", "cafe", "coffee", "meal", "lunch", "dinner", "breakfast"]),
                 CategoryDefinition(name: "Groceries", colorHex: "#22C55E", isDefault: true, hintKeywords: ["grocery", "groceries", "supermarket", "market", "costco", "walmart"]),
                 CategoryDefinition(name: "Transport", colorHex: "#0EA5E9", isDefault: true, hintKeywords: ["uber", "lyft", "taxi", "bus", "train", "metro", "gas", "fuel", "toll", "parking"]),
@@ -1167,7 +1181,9 @@ final class AppStore: ObservableObject {
                 CategoryDefinition(name: "Entertainment", colorHex: "#8B5CF6", isDefault: true, hintKeywords: ["movie", "concert", "games", "nightclub", "club", "bar", "table", "bottle", "cover"]),
                 CategoryDefinition(name: "Subscriptions", colorHex: "#6366F1", isDefault: true, hintKeywords: ["subscription", "monthly", "netflix", "spotify", "icloud", "membership"]),
                 CategoryDefinition(name: "Other", colorHex: "#64748B", isDefault: true, hintKeywords: [])
-            ]
+            ])
+        } else {
+            categoryDefinitions = Self.deduplicatedCategories(categoryDefinitions)
         }
         persistMeta()
     }
@@ -1380,6 +1396,51 @@ private extension AppStore {
             return lhs.expenseDate > rhs.expenseDate
         }
     }
+
+    static func deduplicatedCategories(_ items: [CategoryDefinition]) -> [CategoryDefinition] {
+        var byName: [String: CategoryDefinition] = [:]
+        var usedIDs = Set<UUID>()
+
+        for item in items {
+            let normalizedName = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedName.isEmpty else { continue }
+            let key = normalizedName.lowercased()
+
+            if var existing = byName[key] {
+                existing.isDefault = existing.isDefault || item.isDefault
+                if existing.colorHex?.isEmpty != false, let color = item.colorHex, !color.isEmpty {
+                    existing.colorHex = color
+                }
+                existing.hintKeywords = Array(Set(existing.hintKeywords + item.hintKeywords)).sorted()
+                byName[key] = existing
+                usedIDs.insert(existing.id)
+            } else {
+                let category: CategoryDefinition
+                if usedIDs.contains(item.id) {
+                    category = CategoryDefinition(
+                        name: normalizedName,
+                        colorHex: item.colorHex,
+                        isDefault: item.isDefault,
+                        hintKeywords: item.hintKeywords,
+                        createdAt: item.createdAt
+                    )
+                } else {
+                    category = CategoryDefinition(
+                        id: item.id,
+                        name: normalizedName,
+                        colorHex: item.colorHex,
+                        isDefault: item.isDefault,
+                        hintKeywords: item.hintKeywords,
+                        createdAt: item.createdAt
+                    )
+                }
+                byName[key] = category
+                usedIDs.insert(category.id)
+            }
+        }
+
+        return Array(byName.values).sorted { ($0.isDefault ? 0 : 1, $0.name.lowercased()) < ($1.isDefault ? 0 : 1, $1.name.lowercased()) }
+    }
 }
 
 private enum AppError: LocalizedError {
@@ -1423,33 +1484,6 @@ enum ParsingLanguage: String, Codable, CaseIterable {
     }
 }
 
-struct BudgetUsageSnapshot: Identifiable, Sendable {
-    let id: UUID
-    let rule: BudgetRule
-    let spent: Decimal
-
-    init(rule: BudgetRule, spent: Decimal) {
-        self.id = rule.id
-        self.rule = rule
-        self.spent = spent
-    }
-
-    var remaining: Decimal {
-        max(Decimal.zero, rule.monthlyLimit - spent)
-    }
-
-    var isOverBudget: Bool {
-        spent > rule.monthlyLimit
-    }
-
-    var progressRatio: Double {
-        let limit = NSDecimalNumber(decimal: rule.monthlyLimit).doubleValue
-        guard limit > 0 else { return 0 }
-        let spentValue = NSDecimalNumber(decimal: spent).doubleValue
-        return spentValue / limit
-    }
-}
-
 private struct LocalBackupPayload: Codable {
     var exportedAt: Date
     var expenses: [ExpenseRecord]
@@ -1457,7 +1491,6 @@ private struct LocalBackupPayload: Codable {
     var categories: [CategoryDefinition]
     var trips: [TripRecord]
     var paymentMethods: [PaymentMethod]
-    var budgetRules: [BudgetRule]
     var activeTripID: UUID?
     var defaultCurrencyCode: String?
     var parsingLanguage: String?
@@ -1469,45 +1502,45 @@ private final class LocalMetaStore {
         var categories: [CategoryDefinition]
         var trips: [TripRecord]
         var paymentMethods: [PaymentMethod]
-        var budgetRules: [BudgetRule]
         var activeTripID: UUID?
         var defaultCurrencyCode: String?
         var parsingLanguage: String?
         var dailyVoiceLimit: Int?
         var hasCompletedOnboarding: Bool?
+        var hasCompletedInteractiveTutorial: Bool?
 
         enum CodingKeys: String, CodingKey {
             case categories
             case trips
             case paymentMethods
-            case budgetRules
             case activeTripID
             case defaultCurrencyCode
             case parsingLanguage
             case dailyVoiceLimit
             case hasCompletedOnboarding
+            case hasCompletedInteractiveTutorial
         }
 
         init(
             categories: [CategoryDefinition],
             trips: [TripRecord],
             paymentMethods: [PaymentMethod],
-            budgetRules: [BudgetRule],
             activeTripID: UUID?,
             defaultCurrencyCode: String?,
             parsingLanguage: String?,
             dailyVoiceLimit: Int?,
-            hasCompletedOnboarding: Bool?
+            hasCompletedOnboarding: Bool?,
+            hasCompletedInteractiveTutorial: Bool?
         ) {
             self.categories = categories
             self.trips = trips
             self.paymentMethods = paymentMethods
-            self.budgetRules = budgetRules
             self.activeTripID = activeTripID
             self.defaultCurrencyCode = defaultCurrencyCode
             self.parsingLanguage = parsingLanguage
             self.dailyVoiceLimit = dailyVoiceLimit
             self.hasCompletedOnboarding = hasCompletedOnboarding
+            self.hasCompletedInteractiveTutorial = hasCompletedInteractiveTutorial
         }
 
         init(from decoder: Decoder) throws {
@@ -1515,12 +1548,12 @@ private final class LocalMetaStore {
             categories = try container.decodeIfPresent([CategoryDefinition].self, forKey: .categories) ?? []
             trips = try container.decodeIfPresent([TripRecord].self, forKey: .trips) ?? []
             paymentMethods = try container.decodeIfPresent([PaymentMethod].self, forKey: .paymentMethods) ?? []
-            budgetRules = try container.decodeIfPresent([BudgetRule].self, forKey: .budgetRules) ?? []
             activeTripID = try container.decodeIfPresent(UUID.self, forKey: .activeTripID)
             defaultCurrencyCode = try container.decodeIfPresent(String.self, forKey: .defaultCurrencyCode)
             parsingLanguage = try container.decodeIfPresent(String.self, forKey: .parsingLanguage)
             dailyVoiceLimit = try container.decodeIfPresent(Int.self, forKey: .dailyVoiceLimit)
             hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
+            hasCompletedInteractiveTutorial = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedInteractiveTutorial)
         }
     }
 
@@ -1545,12 +1578,12 @@ private final class LocalMetaStore {
                 categories: [],
                 trips: [],
                 paymentMethods: [],
-                budgetRules: [],
                 activeTripID: nil,
                 defaultCurrencyCode: nil,
                 parsingLanguage: nil,
                 dailyVoiceLimit: nil,
-                hasCompletedOnboarding: nil
+                hasCompletedOnboarding: nil,
+                hasCompletedInteractiveTutorial: nil
             )
         }
         return payload

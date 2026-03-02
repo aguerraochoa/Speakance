@@ -64,7 +64,7 @@ export default function TermsPage() {
 
         <h2>Disclaimer and limitation</h2>
         <p>
-          Speakance is provided on an "as is" and "as available" basis. To the maximum extent permitted by law,
+          Speakance is provided on an &quot;as is&quot; and &quot;as available&quot; basis. To the maximum extent permitted by law,
           we disclaim warranties and are not liable for indirect, incidental, or consequential damages arising
           from use of the service.
         </p>

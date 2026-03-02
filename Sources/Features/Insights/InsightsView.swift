@@ -4,6 +4,7 @@ struct InsightsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var selectedTripID: UUID?
     @State private var selectedPaymentMethodID: UUID?
+    @State private var selectedCurrencyCode = "USD"
     @State private var selectedMonthFilter: InsightsMonthFilter = .currentMonth
     @State private var selectedTrendYear: Int = Calendar.current.component(.year, from: .now)
     @State private var selectedTrendSegment: TrendChartSelection?
@@ -15,7 +16,6 @@ struct InsightsView: View {
                     headerCard
                     filtersCard
                     summaryRow
-                    budgetGuardrailsCard
                     donutCard
                     yearlyCategoryTrendCard
                 }
@@ -27,8 +27,23 @@ struct InsightsView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .onChange(of: selectedTripID) { selectedTrendSegment = nil }
-        .onChange(of: selectedPaymentMethodID) { selectedTrendSegment = nil }
+        .task {
+            let options = availableCurrencyCodes
+            if options.contains(store.defaultCurrencyCode) {
+                selectedCurrencyCode = store.defaultCurrencyCode
+            } else if let first = options.first {
+                selectedCurrencyCode = first
+            }
+        }
+        .onChange(of: selectedTripID) {
+            selectedTrendSegment = nil
+            ensureSelectedCurrencyIsAvailable()
+        }
+        .onChange(of: selectedPaymentMethodID) {
+            selectedTrendSegment = nil
+            ensureSelectedCurrencyIsAvailable()
+        }
+        .onChange(of: selectedCurrencyCode) { selectedTrendSegment = nil }
         .onChange(of: selectedTrendYear) { selectedTrendSegment = nil }
     }
 
@@ -36,8 +51,27 @@ struct InsightsView: View {
         store.filteredExpenses(tripID: selectedTripID, paymentMethodID: selectedPaymentMethodID)
     }
 
+    private var availableCurrencyCodes: [String] {
+        let detected = Set(baseFilteredExpenses.compactMap { code in
+            let trimmed = code.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            return trimmed.isEmpty ? nil : trimmed
+        })
+        let merged = detected.union([store.defaultCurrencyCode])
+        return merged.sorted { lhs, rhs in
+            if lhs == store.defaultCurrencyCode { return true }
+            if rhs == store.defaultCurrencyCode { return false }
+            return lhs < rhs
+        }
+    }
+
+    private var currencyScopedExpenses: [ExpenseRecord] {
+        baseFilteredExpenses.filter {
+            $0.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == selectedCurrencyCode
+        }
+    }
+
     private var scopedExpenses: [ExpenseRecord] {
-        baseFilteredExpenses.filter { expense in
+        currencyScopedExpenses.filter { expense in
             switch selectedMonthFilter {
             case .all:
                 return true
@@ -167,6 +201,15 @@ struct InsightsView: View {
                         compactFilterChip(title: "Month", value: selectedMonthFilter.title)
                     }
                     .buttonStyle(.plain)
+
+                    Menu {
+                        ForEach(availableCurrencyCodes, id: \.self) { currency in
+                            Button(currency) { selectedCurrencyCode = currency }
+                        }
+                    } label: {
+                        compactFilterChip(title: "Currency", value: selectedCurrencyCode)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -214,40 +257,19 @@ struct InsightsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
                 } else {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .center, spacing: 18) {
-                            DonutChartView(
-                                segments: donutSegments,
-                                centerTitle: insightsCurrencyString(scopedTotal),
-                                centerSubtitle: "\(scopedExpenses.count) entries"
-                            )
-                            .frame(width: 190, height: 190)
-                            .padding(.vertical, 8)
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(donutSegments.prefix(5))) { segment in
-                                    legendRow(segment)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    VStack(alignment: .leading, spacing: 14) {
+                        DonutChartView(
+                            segments: donutSegments,
+                            centerTitle: insightsCurrencyString(scopedTotal),
+                            centerSubtitle: "\(scopedExpenses.count) entries"
+                        )
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 8)
+                        .frame(height: 220)
+                        .padding(.vertical, 10)
 
-                        VStack(alignment: .leading, spacing: 14) {
-                            DonutChartView(
-                                segments: donutSegments,
-                                centerTitle: insightsCurrencyString(scopedTotal),
-                                centerSubtitle: "\(scopedExpenses.count) entries"
-                            )
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .frame(height: 220)
-                            .padding(.vertical, 10)
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                ForEach(Array(donutSegments.prefix(5))) { segment in
-                                    legendRow(segment)
-                                }
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(Array(donutSegments.prefix(5))) { segment in
+                                legendRow(segment)
                             }
                         }
                     }
@@ -256,41 +278,9 @@ struct InsightsView: View {
         }
     }
 
-    private var budgetGuardrailsCard: some View {
-        let snapshots = store.budgetSnapshot()
-
-        return SpeakCard(padding: 18, cornerRadius: 24, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(
-                    title: "Budget Guardrails",
-                    subtitle: snapshots.isEmpty ? "Set budgets in Settings to track overages." : "Current month progress by category"
-                )
-
-                if snapshots.isEmpty {
-                    Text("No monthly budgets configured yet.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.faintText)
-                } else {
-                    ForEach(snapshots.prefix(4)) { snapshot in
-                        HStack(spacing: 10) {
-                            CategoryDot(category: snapshot.rule.categoryName)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(snapshot.rule.categoryName)
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                                    .foregroundStyle(AppTheme.ink)
-                                Text("\(insightsCurrencyString(snapshot.spent)) / \(insightsCurrencyString(snapshot.rule.monthlyLimit))")
-                                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundStyle(snapshot.isOverBudget ? AppTheme.error : AppTheme.faintText)
-                            }
-                            Spacer()
-                            Text("\(Int((snapshot.progressRatio * 100).rounded()))%")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(snapshot.progressRatio >= 1 ? AppTheme.error : AppTheme.ink)
-                        }
-                    }
-                }
-            }
-        }
+    private func ensureSelectedCurrencyIsAvailable() {
+        if availableCurrencyCodes.contains(selectedCurrencyCode) { return }
+        selectedCurrencyCode = availableCurrencyCodes.first ?? store.defaultCurrencyCode
     }
 
     private func legendRow(_ segment: DonutSegment) -> some View {
@@ -319,23 +309,20 @@ struct InsightsView: View {
         HStack(spacing: 10) {
             metricCard(
                 title: "Daily Avg",
-                value: insightsCurrencyString(dailyAverage),
-                subtitle: selectedTripID == nil ? "Current scope" : "Trip scope"
+                value: insightsCurrencyString(dailyAverage)
             )
             metricCard(
                 title: "Entries",
-                value: "\(scopedExpenses.count)",
-                subtitle: "Filtered"
+                value: "\(scopedExpenses.count)"
             )
             metricCard(
                 title: "Queue",
-                value: "\(pendingQueueCount)",
-                subtitle: pendingQueueCount == 0 ? "All clear" : "Pending"
+                value: "\(pendingQueueCount)"
             )
         }
     }
 
-    private func metricCard(title: String, value: String, subtitle: String) -> some View {
+    private func metricCard(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.caption.weight(.semibold))
@@ -345,10 +332,6 @@ struct InsightsView: View {
                 .foregroundStyle(AppTheme.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(subtitle)
-                .font(.caption2)
-                .foregroundStyle(AppTheme.muted)
-                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
@@ -370,7 +353,9 @@ struct InsightsView: View {
                         Spacer()
                         Menu {
                             ForEach(availableTrendYears, id: \.self) { year in
-                                Button("\(year)") { selectedTrendYear = year }
+                                Button(action: { selectedTrendYear = year }) {
+                                    Text(verbatim: String(year))
+                                }
                             }
                         } label: {
                             HStack(spacing: 6) {
@@ -485,7 +470,7 @@ struct InsightsView: View {
 
     private var availableMonthFilters: [InsightsMonthFilter] {
         let calendar = Calendar.current
-        let unique = Set(baseFilteredExpenses.compactMap { expense -> InsightsMonthFilter? in
+        let unique = Set(currencyScopedExpenses.compactMap { expense -> InsightsMonthFilter? in
             let comps = calendar.dateComponents([.year, .month], from: expense.expenseDate)
             guard let year = comps.year, let month = comps.month else { return nil }
             return .month(year: year, month: month)
@@ -495,13 +480,13 @@ struct InsightsView: View {
 
     private var availableTrendYears: [Int] {
         let currentYear = Calendar.current.component(.year, from: .now)
-        let years = Set(baseFilteredExpenses.compactMap { Calendar.current.dateComponents([.year], from: $0.expenseDate).year })
+        let years = Set(currencyScopedExpenses.compactMap { Calendar.current.dateComponents([.year], from: $0.expenseDate).year })
             .union([currentYear])
         return years.sorted(by: >)
     }
 
     private var trendYearExpenses: [ExpenseRecord] {
-        baseFilteredExpenses.filter {
+        currencyScopedExpenses.filter {
             Calendar.current.component(.year, from: $0.expenseDate) == selectedTrendYear
         }
     }
@@ -671,7 +656,8 @@ private struct MonthlyCategoryStackedChartView: View {
             let height = max(1, proxy.size.height)
             let barHeight = CGFloat(monthTotal / maxTotal) * height
 
-            ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
                 if monthTotal > 0 {
                     VStack(spacing: 0) {
                         ForEach(Array(month.segments.reversed())) { segment in
@@ -711,6 +697,7 @@ private struct MonthlyCategoryStackedChartView: View {
                     )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .contentShape(Rectangle())
             .onTapGesture {
                 if monthTotal == 0 { selection = nil }

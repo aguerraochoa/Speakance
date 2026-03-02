@@ -186,7 +186,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     private func parseServerDate(_ value: String) throws -> Date {
-        if let date = DateOnlyFormatter.shared.date(from: value) {
+        if let date = DateOnlyFormatter.date(from: value) {
             return date
         }
         throw ExpenseAPIError.server("Invalid expense_date from server")
@@ -937,7 +937,7 @@ private struct ExpenseUpdatePayload: Encodable {
         categoryId = draft.categoryID?.uuidString
         description = draft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.description
         merchant = draft.merchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.merchant
-        expenseDate = DateOnlyFormatter.shared.string(from: draft.expenseDate)
+        expenseDate = DateOnlyFormatter.string(from: draft.expenseDate)
         parseStatus = "edited"
         parseConfidence = draft.parseConfidence
         rawText = draft.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.rawText
@@ -1048,7 +1048,7 @@ private struct RESTExpense: Decodable {
         guard
             let id = UUID(uuidString: id),
             let clientExpenseID = UUID(uuidString: clientExpenseID),
-            let date = DateOnlyFormatter.shared.date(from: expenseDate)
+            let date = DateOnlyFormatter.date(from: expenseDate)
         else { return nil }
 
         let created = createdAt ?? .now
@@ -1110,8 +1110,8 @@ private struct RESTTrip: Decodable {
 
     var asModel: TripRecord? {
         guard let id = UUID(uuidString: id),
-              let start = DateOnlyFormatter.shared.date(from: startDate) else { return nil }
-        let end = endDate.flatMap(DateOnlyFormatter.shared.date(from:))
+              let start = DateOnlyFormatter.date(from: startDate) else { return nil }
+        let end = endDate.flatMap(DateOnlyFormatter.date(from:))
         return TripRecord(
             id: id,
             name: name,
@@ -1210,8 +1210,8 @@ private struct RESTTripUpsert: Encodable {
         self.userID = userID
         name = trip.name
         destination = trip.destination
-        startDate = DateOnlyFormatter.shared.string(from: trip.startDate)
-        endDate = trip.endDate.map { DateOnlyFormatter.shared.string(from: $0) }
+        startDate = DateOnlyFormatter.string(from: trip.startDate)
+        endDate = trip.endDate.map { DateOnlyFormatter.string(from: $0) }
         baseCurrency = trip.baseCurrency
         status = trip.status.rawValue
     }
@@ -1276,12 +1276,38 @@ private struct RESTPaymentMethodAliasUpsert: Encodable {
 }
 
 private enum DateOnlyFormatter {
-    static let shared: Foundation.DateFormatter = {
-        let formatter = Foundation.DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    static func date(from value: String) -> Date? {
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else {
+            return nil
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+
+        var components = DateComponents()
+        components.calendar = calendar
+        components.timeZone = calendar.timeZone
+        components.year = year
+        components.month = month
+        components.day = day
+        // Anchor at local midday so date-only values never drift across day boundaries.
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+        return calendar.date(from: components)
+    }
+
+    static func string(from date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        let year = components.year ?? 1970
+        let month = components.month ?? 1
+        let day = components.day ?? 1
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
 }

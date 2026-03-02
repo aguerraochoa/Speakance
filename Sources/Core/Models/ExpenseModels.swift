@@ -112,28 +112,6 @@ struct PaymentMethod: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-struct BudgetRule: Identifiable, Codable, Equatable, Sendable {
-    let id: UUID
-    var categoryName: String
-    var monthlyLimit: Decimal
-    var isEnabled: Bool
-    var createdAt: Date
-
-    init(
-        id: UUID = UUID(),
-        categoryName: String,
-        monthlyLimit: Decimal,
-        isEnabled: Bool = true,
-        createdAt: Date = .now
-    ) {
-        self.id = id
-        self.categoryName = categoryName
-        self.monthlyLimit = monthlyLimit
-        self.isEnabled = isEnabled
-        self.createdAt = createdAt
-    }
-}
-
 struct ExpenseRecord: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let clientExpenseID: UUID
@@ -301,4 +279,62 @@ enum AppTab: Hashable {
     case feed
     case insights
     case settings
+}
+
+enum TutorialStartMode: Sendable {
+    case firstRun
+    case replay
+}
+
+enum TutorialStep: Int, CaseIterable, Sendable {
+    case welcome
+    case captureDemo
+    case ledgerDemo
+    case insightsDemo
+    case done
+
+    var title: String {
+        switch self {
+        case .welcome:
+            return "Welcome To Speakance"
+        case .captureDemo:
+            return "Capture In Seconds"
+        case .ledgerDemo:
+            return "Ledger Keeps You Organized"
+        case .insightsDemo:
+            return "Insights Show The Why"
+        case .done:
+            return "All Set"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .welcome:
+            return "Track spending with fast capture, clean history, and clear trends."
+        case .captureDemo:
+            return "Tap once to record and capture expenses by voice, or type when you prefer."
+        case .ledgerDemo:
+            return "Review saved expenses, manage queue retries, and filter by month, trip, or card."
+        case .insightsDemo:
+            return "See category trends and spending patterns so you can adjust faster."
+        case .done:
+            return "Done. You can replay this walkthrough anytime in Settings."
+        }
+    }
+
+    var primaryButtonTitle: String {
+        switch self {
+        case .done:
+            return "Finish"
+        default:
+            return "Continue"
+        }
+    }
+}
+
+enum TutorialState: Equatable, Sendable {
+    case inactive
+    case running(TutorialStep)
+    case completed
 }

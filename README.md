@@ -20,10 +20,10 @@ Speakance is an iOS-first, voice-first personal finance app for frictionless exp
 
 ## Start Here
 
-1. Read `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/ios/Speakance/docs/v1-spec.md`
-2. Read `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/ios/Speakance/docs/setup-checklist.md`
-3. Generate the iOS project from `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/ios/Speakance/project.yml` (with XcodeGen)
-4. Create a Supabase project and apply `/Users/andresguerra/Documents/Non-Work/Apps/TalkSpend/ios/Speakance/supabase/migrations/20260222_000001_init.sql`
+1. Read `/Users/andresguerra/Documents/Non-Work/Apps/Speakance/docs/v1-spec.md`
+2. Read `/Users/andresguerra/Documents/Non-Work/Apps/Speakance/docs/setup-checklist.md`
+3. Generate the iOS project from `/Users/andresguerra/Documents/Non-Work/Apps/Speakance/project.yml` (with XcodeGen)
+4. Create a Supabase project and apply `/Users/andresguerra/Documents/Non-Work/Apps/Speakance/supabase/migrations/20260222_000001_init.sql`
 
 ## Naming
 

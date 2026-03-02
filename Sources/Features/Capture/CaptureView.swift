@@ -370,7 +370,6 @@ private struct TripPickerSheet: View {
     @State private var newTripName = ""
     @State private var baseCurrency: String? = nil
     @State private var startDate = Date()
-    @State private var endDate: Date? = nil
 
     var body: some View {
         NavigationStack {
@@ -434,7 +433,6 @@ private struct TripPickerSheet: View {
                         store.addTrip(
                             name: newTripName,
                             startDate: startDate,
-                            endDate: endDate,
                             baseCurrency: baseCurrency ?? store.defaultCurrencyCode,
                             setActive: true
                         )
