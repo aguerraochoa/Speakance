@@ -1,17 +1,20 @@
 import Foundation
 
 protocol QueueStoreProtocol: AnyObject {
+    var onPersistenceError: ((String) -> Void)? { get set }
     func loadQueue() -> [QueuedCapture]
     func saveQueue(_ queue: [QueuedCapture])
 }
 
 protocol ExpenseLedgerStoreProtocol: AnyObject {
+    var onPersistenceError: ((String) -> Void)? { get set }
     func loadExpenses() -> [ExpenseRecord]
     func saveExpenses(_ expenses: [ExpenseRecord])
 }
 
 final class InMemoryQueueStore: QueueStoreProtocol {
     private var queue: [QueuedCapture] = []
+    var onPersistenceError: ((String) -> Void)?
 
     func loadQueue() -> [QueuedCapture] {
         queue
@@ -24,6 +27,7 @@ final class InMemoryQueueStore: QueueStoreProtocol {
 
 final class InMemoryExpenseLedgerStore: ExpenseLedgerStoreProtocol {
     private var expenses: [ExpenseRecord] = []
+    var onPersistenceError: ((String) -> Void)?
 
     func loadExpenses() -> [ExpenseRecord] {
         expenses
@@ -40,6 +44,7 @@ final class FileQueueStore: QueueStoreProtocol {
     private let decoder: JSONDecoder
     private let fm: FileManager
     private let ioQueue = DispatchQueue(label: "com.speakance.queue-store-io", qos: .utility)
+    var onPersistenceError: ((String) -> Void)?
 
     init(fileManager: FileManager = .default) {
         self.fm = fileManager
@@ -64,7 +69,7 @@ final class FileQueueStore: QueueStoreProtocol {
     }
 
     func saveQueue(_ queue: [QueuedCapture]) {
-        ioQueue.async { [fileURL, fm, encoder] in
+        ioQueue.async { [fileURL, fm, encoder, onPersistenceError] in
             do {
                 let dir = fileURL.deletingLastPathComponent()
                 if !fm.fileExists(atPath: dir.path) {
@@ -73,6 +78,7 @@ final class FileQueueStore: QueueStoreProtocol {
                 let data = try encoder.encode(queue)
                 try data.write(to: fileURL, options: .atomic)
             } catch {
+                onPersistenceError?("Could not save offline queue data.")
                 #if DEBUG
                 print("[Speakance] Failed to save queue: \(error)")
                 #endif
@@ -100,6 +106,7 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
     private let decoder: JSONDecoder
     private let fm: FileManager
     private let ioQueue = DispatchQueue(label: "com.speakance.expense-store-io", qos: .utility)
+    var onPersistenceError: ((String) -> Void)?
 
     init(fileManager: FileManager = .default) {
         self.fm = fileManager
@@ -124,7 +131,7 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
     }
 
     func saveExpenses(_ expenses: [ExpenseRecord]) {
-        ioQueue.async { [fileURL, fm, encoder] in
+        ioQueue.async { [fileURL, fm, encoder, onPersistenceError] in
             do {
                 let dir = fileURL.deletingLastPathComponent()
                 if !fm.fileExists(atPath: dir.path) {
@@ -133,6 +140,7 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
                 let data = try encoder.encode(expenses)
                 try data.write(to: fileURL, options: .atomic)
             } catch {
+                onPersistenceError?("Could not save local expenses data.")
                 #if DEBUG
                 print("[Speakance] Failed to save expenses: \(error)")
                 #endif

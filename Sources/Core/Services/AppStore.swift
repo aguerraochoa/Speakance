@@ -55,6 +55,16 @@ final class AppStore: ObservableObject {
         self.isConnected = resolvedNetworkMonitor.isConnected
         self.queuedCaptures = Self.normalizedQueueForStartup(Self.deduplicatedQueue(queueStore.loadQueue()))
         self.expenses = Self.deduplicatedExpenses(expenseLedgerStore.loadExpenses())
+        self.queueStore.onPersistenceError = { [weak self] message in
+            Task { @MainActor [weak self] in
+                self?.lastOperationalErrorMessage = message
+            }
+        }
+        self.expenseLedgerStore.onPersistenceError = { [weak self] message in
+            Task { @MainActor [weak self] in
+                self?.lastOperationalErrorMessage = message
+            }
+        }
 
         let persistedMeta = metaStore.load()
         self.categoryDefinitions = Self.deduplicatedCategories(persistedMeta.categories)
@@ -346,6 +356,12 @@ final class AppStore: ObservableObject {
             previousDescription: previousDescription,
             newDescription: normalizedDraft.description
         )
+
+        guard let parsedAmount = Self.parseFlexibleDecimal(normalizedDraft.amountText), parsedAmount > 0 else {
+            lastOperationalErrorMessage = "Enter a valid amount greater than zero."
+            return
+        }
+        normalizedDraft.amountText = NSDecimalNumber(decimal: parsedAmount).stringValue
 
         saveParsedDraft(normalizedDraft, queueID: context.queueID, existingExpenseID: context.expenseID, markAsEdited: true)
         if let expenseID = context.expenseID {
@@ -794,7 +810,10 @@ final class AppStore: ObservableObject {
     }
 
     private func saveParsedDraft(_ draft: ExpenseDraft, queueID: UUID?, existingExpenseID: UUID?, markAsEdited: Bool) {
-        let amount = Decimal(string: draft.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
+        guard let amount = Self.parseFlexibleDecimal(draft.amountText), amount > 0 else {
+            lastOperationalErrorMessage = "Enter a valid amount greater than zero."
+            return
+        }
         let now = Date()
         let capturedAtDevice = queueID
             .flatMap { qid in queuedCaptures.first(where: { $0.id == qid })?.capturedAt }
@@ -1234,6 +1253,67 @@ final class AppStore: ObservableObject {
         return normalized
     }
 
+    private static func parseFlexibleDecimal(_ raw: String) -> Decimal? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        var signPrefix = ""
+        if let first = trimmed.first, first == "-" || first == "+" {
+            signPrefix = String(first)
+        }
+
+        let allowedSet = CharacterSet(charactersIn: "0123456789,.")
+        let numericPortionScalars = trimmed.unicodeScalars.filter { allowedSet.contains($0) }
+        var cleaned = String(String.UnicodeScalarView(numericPortionScalars))
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "’", with: "")
+
+        guard cleaned.contains(where: { $0.isNumber }) else { return nil }
+
+        let commaCount = cleaned.filter { $0 == "," }.count
+        let dotCount = cleaned.filter { $0 == "." }.count
+        var decimalSeparator: Character?
+
+        if commaCount > 0 && dotCount > 0 {
+            let lastComma = cleaned.lastIndex(of: ",")
+            let lastDot = cleaned.lastIndex(of: ".")
+            if let lastComma, let lastDot {
+                decimalSeparator = lastComma > lastDot ? "," : "."
+            }
+        } else if commaCount == 1 {
+            if let separatorIndex = cleaned.lastIndex(of: ",") {
+                let suffixDigits = cleaned.distance(from: cleaned.index(after: separatorIndex), to: cleaned.endIndex)
+                decimalSeparator = suffixDigits == 3 ? nil : ","
+            }
+        } else if dotCount == 1 {
+            if let separatorIndex = cleaned.lastIndex(of: ".") {
+                let suffixDigits = cleaned.distance(from: cleaned.index(after: separatorIndex), to: cleaned.endIndex)
+                decimalSeparator = suffixDigits == 3 ? nil : "."
+            }
+        }
+
+        if let decimalSeparator {
+            let thousandsSeparator: Character = decimalSeparator == "," ? "." : ","
+            cleaned.removeAll(where: { $0 == thousandsSeparator })
+            if decimalSeparator == "," {
+                cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
+            }
+        } else {
+            cleaned.removeAll(where: { $0 == "," || $0 == "." })
+        }
+
+        if cleaned.hasSuffix(".") {
+            cleaned.append("0")
+        }
+
+        if !signPrefix.isEmpty {
+            cleaned = signPrefix + cleaned
+        }
+
+        return Decimal(string: cleaned, locale: Locale(identifier: "en_US_POSIX"))
+    }
+
     private static func normalizedParsingLanguage(_ raw: String?) -> ParsingLanguage? {
         guard let raw else { return nil }
         return ParsingLanguage(rawValue: raw)
@@ -1293,8 +1373,7 @@ private extension AppStore {
     static func normalizedAmountText(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return raw }
-        let candidate = trimmed.replacingOccurrences(of: ",", with: ".")
-        guard let decimal = Decimal(string: candidate) else { return trimmed }
+        guard let decimal = parseFlexibleDecimal(trimmed) else { return trimmed }
         return NSDecimalNumber(decimal: decimal).stringValue
     }
 

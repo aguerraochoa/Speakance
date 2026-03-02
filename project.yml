@@ -41,3 +41,14 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSupportsIndirectInputEvents: true
+
+  SpeakanceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Speakance
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

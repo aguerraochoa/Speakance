@@ -30,8 +30,21 @@ enum AppBootstrap {
 
     @MainActor
     static func makeBundle() -> Bundle {
-        guard let config = SupabaseAppConfig.loadFromBundle() else {
-            preconditionFailure("Missing Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY in Info.plist before running a production build.")
+        makeBundle(config: SupabaseAppConfig.loadFromBundle())
+    }
+
+    @MainActor
+    static func makeBundle(config: SupabaseAppConfig?) -> Bundle {
+        guard let config else {
+            #if DEBUG
+            print("[Speakance] Missing Supabase configuration. Running in local/offline mode.")
+            let tokenStore = SharedAccessTokenStore()
+            let authStore = AuthStore(client: nil, tokenStore: tokenStore)
+            let appStore = AppStore(apiClient: MockExpenseAPIClient())
+            return Bundle(appStore: appStore, authStore: authStore)
+            #else
+            fatalError("Missing Supabase configuration. Set SUPABASE_URL and SUPABASE_ANON_KEY before shipping.")
+            #endif
         }
 
         let tokenStore = SharedAccessTokenStore()
