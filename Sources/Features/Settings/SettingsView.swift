@@ -595,13 +595,9 @@ struct SettingsView: View {
     }
 
     private func exportCSVForSaving() {
-        do {
-            let csv = store.exportExpensesCSV()
-            csvExportDocument = CSVDocument(text: csv)
-            isExportingCSV = true
-        } catch {
-            backupActionMessage = "CSV export failed: \(error.localizedDescription)"
-        }
+        let csv = store.exportExpensesCSV()
+        csvExportDocument = CSVDocument(text: csv)
+        isExportingCSV = true
     }
 }
 
