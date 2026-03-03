@@ -549,7 +549,7 @@ struct InsightsView: View {
         let roundedDouble = NSDecimalNumber(decimal: amount).doubleValue.rounded()
         return CurrencyFormatter.string(
             Decimal(roundedDouble),
-            currency: store.defaultCurrencyCode,
+            currency: selectedCurrencyCode,
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         )

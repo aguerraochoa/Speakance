@@ -1146,8 +1146,23 @@ final class AppStore: ObservableObject {
         do {
             guard let snapshot = try await apiClient.fetchMetadata() else { return }
             categoryDefinitions = mergeRemoteCategories(snapshot.categories)
-            trips = snapshot.trips
-            paymentMethods = snapshot.paymentMethods
+
+            // Keep local metadata when remote returns empty arrays to avoid erasing
+            // unsynced local trips/payment methods on app relaunch.
+            let preservedLocalTrips = snapshot.trips.isEmpty && !trips.isEmpty
+            let preservedLocalPaymentMethods = snapshot.paymentMethods.isEmpty && !paymentMethods.isEmpty
+
+            if !preservedLocalTrips {
+                trips = snapshot.trips
+            }
+            if !preservedLocalPaymentMethods {
+                paymentMethods = snapshot.paymentMethods
+            }
+
+            if preservedLocalTrips || preservedLocalPaymentMethods {
+                scheduleMetadataSync()
+            }
+
             if let remoteDefault = Self.normalizedCurrencyCode(snapshot.defaultCurrencyCode) {
                 defaultCurrencyCode = remoteDefault
             }

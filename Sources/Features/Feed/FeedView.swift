@@ -79,7 +79,7 @@ struct FeedView: View {
                 HStack(spacing: 10) {
                     MetricChip(
                         title: "Month",
-                        value: CurrencyFormatter.string(store.monthlySpendTotal, currency: store.defaultCurrencyCode),
+                        value: monthMetricValue,
                         tint: AppTheme.accent
                     )
                     MetricChip(title: "Queue", value: "\(visibleQueueItems.count)", tint: AppTheme.sky)
@@ -607,6 +607,24 @@ struct FeedView: View {
         store.expenses.filter { expense in
             matchesTripFilter(expense) && matchesCardFilter(expense) && matchesMonthFilter(expense)
         }
+    }
+
+    private var monthMetricValue: String {
+        let totalsByCurrency = filteredSavedExpenses.reduce(into: [String: Decimal]()) { partial, expense in
+            let normalized = expense.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let currency = normalized.isEmpty ? store.defaultCurrencyCode : normalized
+            partial[currency, default: .zero] += expense.amount
+        }
+
+        guard !totalsByCurrency.isEmpty else {
+            return CurrencyFormatter.string(.zero, currency: store.defaultCurrencyCode)
+        }
+
+        if totalsByCurrency.count == 1, let (currency, amount) = totalsByCurrency.first {
+            return CurrencyFormatter.string(amount, currency: currency)
+        }
+
+        return "\(totalsByCurrency.count) currencies"
     }
 
     private func matchesTripFilter(_ expense: ExpenseRecord) -> Bool {
