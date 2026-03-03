@@ -41,6 +41,10 @@ struct ContentView: View {
                 await authStore.validateSessionWithServerIfNeeded()
             }
         }
+        .onChange(of: isSignedIn) { wasSignedIn, nowSignedIn in
+            guard nowSignedIn && !wasSignedIn else { return }
+            store.selectedTab = .capture
+        }
         .task(id: authStore.currentAccessToken) {
             if case .signedIn = authStore.state, authStore.currentAccessToken != nil {
                 await store.refreshCloudStateFromServer()
@@ -60,6 +64,11 @@ struct ContentView: View {
                 ExpenseReviewView(context: context)
                     .environmentObject(store)
             }
+    }
+
+    private var isSignedIn: Bool {
+        if case .signedIn = authStore.state { return true }
+        return false
     }
 
     private var tutorialIsPresented: Binding<Bool> {

@@ -175,6 +175,16 @@ struct InsightsView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     Menu {
+                        Button("All Months") { selectedMonthFilter = .all }
+                        ForEach(availableMonthFilters, id: \.self) { month in
+                            Button(month.title) { selectedMonthFilter = month }
+                        }
+                    } label: {
+                        compactFilterChip(title: "Month", value: selectedMonthFilter.title)
+                    }
+                    .buttonStyle(.plain)
+
+                    Menu {
                         Button("All Trips") { selectedTripID = nil }
                         ForEach(store.activeTripFilterOptions) { trip in
                             Button(trip.name) { selectedTripID = trip.id }
@@ -191,16 +201,6 @@ struct InsightsView: View {
                         }
                     } label: {
                         compactFilterChip(title: "Card", value: selectedPaymentName == "All Payment Methods" ? "All Cards" : selectedPaymentName)
-                    }
-                    .buttonStyle(.plain)
-
-                    Menu {
-                        Button("All Months") { selectedMonthFilter = .all }
-                        ForEach(availableMonthFilters, id: \.self) { month in
-                            Button(month.title) { selectedMonthFilter = month }
-                        }
-                    } label: {
-                        compactFilterChip(title: "Month", value: selectedMonthFilter.title)
                     }
                     .buttonStyle(.plain)
 

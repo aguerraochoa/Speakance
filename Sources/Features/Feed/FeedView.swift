@@ -6,8 +6,7 @@ struct FeedView: View {
     @State private var selectedCardFilter: SavedCardFilter = .all
     @State private var selectedMonthFilter: SavedMonthFilter = .currentMonth
     @State private var savedLayout: SavedExpenseLayout = .cards
-    @State private var selectedPermanentDeleteID: UUID?
-    @State private var showingClearAllRecentlyDeletedConfirmation = false
+    @State private var showingRecentlyDeletedSheet = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -20,9 +19,6 @@ struct FeedView: View {
                         }
                         savedFiltersBar
                         expensesSection
-                        if !store.recentlyDeletedExpenses.isEmpty {
-                            recentlyDeletedSection
-                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
@@ -55,6 +51,12 @@ struct FeedView: View {
                 await store.syncQueueIfPossible()
             }
         }
+        .sheet(isPresented: $showingRecentlyDeletedSheet) {
+            NavigationStack {
+                RecentlyDeletedSheetView()
+                    .environmentObject(store)
+            }
+        }
     }
 
     private var header: some View {
@@ -70,10 +72,38 @@ struct FeedView: View {
                             .foregroundStyle(AppTheme.muted)
                     }
                     Spacer()
-                    StatusPill(
-                        text: store.isSyncingQueue ? "Syncing" : (failedQueueCount > 0 ? "Needs Attention" : "Up to date"),
-                        color: store.isSyncingQueue ? AppTheme.warning : (failedQueueCount > 0 ? AppTheme.error : AppTheme.success)
-                    )
+                    VStack(alignment: .trailing, spacing: 8) {
+                        StatusPill(
+                            text: store.isSyncingQueue ? "Syncing" : (failedQueueCount > 0 ? "Needs Attention" : "Up to date"),
+                            color: store.isSyncingQueue ? AppTheme.warning : (failedQueueCount > 0 ? AppTheme.error : AppTheme.success)
+                        )
+                        Button {
+                            showingRecentlyDeletedSheet = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(AppTheme.ink)
+                                    .frame(width: 30, height: 30)
+                                    .background(AppTheme.cardStrong, in: Circle())
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                                    )
+                                if !store.recentlyDeletedExpenses.isEmpty {
+                                    Text("\(store.recentlyDeletedExpenses.count)")
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(AppTheme.error, in: Capsule())
+                                        .offset(x: 8, y: -8)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open Recently Deleted")
+                    }
                 }
 
                 HStack(spacing: 10) {
@@ -91,6 +121,16 @@ struct FeedView: View {
     private var savedFiltersBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
+                Menu {
+                    Button("All Months") { selectedMonthFilter = .all }
+                    ForEach(availableMonthFilters, id: \.self) { month in
+                        Button(month.title) { selectedMonthFilter = month }
+                    }
+                } label: {
+                    filterChip(title: "Month", value: selectedMonthFilter.title)
+                }
+                .buttonStyle(.plain)
+
                 Menu {
                     Button("All Trips") { selectedTripFilter = .all }
                     Button("No Trip") { selectedTripFilter = .noTrip }
@@ -110,16 +150,6 @@ struct FeedView: View {
                     }
                 } label: {
                     filterChip(title: "Card", value: selectedCardFilterTitle)
-                }
-                .buttonStyle(.plain)
-
-                Menu {
-                    Button("All Months") { selectedMonthFilter = .all }
-                    ForEach(availableMonthFilters, id: \.self) { month in
-                        Button(month.title) { selectedMonthFilter = month }
-                    }
-                } label: {
-                    filterChip(title: "Month", value: selectedMonthFilter.title)
                 }
                 .buttonStyle(.plain)
 
@@ -232,123 +262,6 @@ struct FeedView: View {
                     }
                 }
             }
-        }
-    }
-
-    private var recentlyDeletedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .center, spacing: 8) {
-                    Text("Recently Deleted")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AppTheme.ink)
-                    Spacer()
-                    Text("\(store.recentlyDeletedExpenses.count)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.muted)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(AppTheme.cardStrong, in: Capsule())
-                        .overlay(
-                            Capsule()
-                                .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
-                        )
-                Menu {
-                    Button(role: .destructive) {
-                        showingClearAllRecentlyDeletedConfirmation = true
-                    } label: {
-                        Label("Clear All", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(AppTheme.faintText)
-                }
-                .buttonStyle(.plain)
-                }
-                Text("Items are kept for 30 days")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.faintText)
-            }
-
-            ForEach(store.recentlyDeletedExpenses) { entry in
-                SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(entry.expense.category)
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                                    .foregroundStyle(AppTheme.ink)
-                                Text(entry.expense.description ?? entry.expense.rawText ?? "Deleted expense")
-                                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundStyle(AppTheme.muted)
-                                    .lineLimit(2)
-                            }
-                            Spacer(minLength: 8)
-                            Text(CurrencyFormatter.string(entry.expense.amount, currency: entry.expense.currency))
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                .foregroundStyle(AppTheme.ink)
-                        }
-
-                        HStack {
-                            Text("Deleted \(entry.deletedAt.formatted(date: .abbreviated, time: .shortened))")
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
-                                .foregroundStyle(AppTheme.faintText)
-                            Spacer()
-                            Text("Long press for actions")
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                .foregroundStyle(AppTheme.faintText)
-                        }
-                    }
-                }
-                .contentShape(Rectangle())
-                .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .contextMenu {
-                    Button {
-                        store.restoreRecentlyDeletedExpense(entry.id)
-                    } label: {
-                        Label("Restore", systemImage: "arrow.uturn.backward")
-                    }
-
-                    Button(role: .destructive) {
-                        selectedPermanentDeleteID = entry.id
-                    } label: {
-                        Label("Delete Permanently", systemImage: "trash")
-                    }
-                }
-            }
-        }
-        .confirmationDialog(
-            "Delete permanently?",
-            isPresented: Binding(
-                get: { selectedPermanentDeleteID != nil },
-                set: { if !$0 { selectedPermanentDeleteID = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                if let id = selectedPermanentDeleteID {
-                    store.permanentlyDeleteRecentlyDeletedExpense(id)
-                }
-                selectedPermanentDeleteID = nil
-            }
-            Button("Cancel", role: .cancel) {
-                selectedPermanentDeleteID = nil
-            }
-        } message: {
-            Text("This cannot be undone.")
-        }
-        .confirmationDialog(
-            "Clear all recently deleted?",
-            isPresented: $showingClearAllRecentlyDeletedConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Clear All", role: .destructive) {
-                store.clearAllRecentlyDeletedExpenses()
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This permanently deletes all items in Recently Deleted.")
         }
     }
 
@@ -711,6 +624,131 @@ struct FeedView: View {
         store.queuedCaptures.filter { $0.status != .saved }
     }
 
+}
+
+private struct RecentlyDeletedSheetView: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPermanentDeleteID: UUID?
+    @State private var showingClearAllRecentlyDeletedConfirmation = false
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Items are kept for 30 days")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.faintText)
+
+                if store.recentlyDeletedExpenses.isEmpty {
+                    SpeakCard(padding: 16, cornerRadius: 20) {
+                        Text("No recently deleted expenses.")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(AppTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    ForEach(store.recentlyDeletedExpenses) { entry in
+                        SpeakCard(padding: 14, cornerRadius: 18, fill: AnyShapeStyle(AppTheme.cardStrong), stroke: AppTheme.cardStroke) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(alignment: .top, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(entry.expense.category)
+                                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                                            .foregroundStyle(AppTheme.ink)
+                                        Text(entry.expense.description ?? entry.expense.rawText ?? "Deleted expense")
+                                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                                            .foregroundStyle(AppTheme.muted)
+                                            .lineLimit(2)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Text(CurrencyFormatter.string(entry.expense.amount, currency: entry.expense.currency))
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                        .foregroundStyle(AppTheme.ink)
+                                }
+
+                                HStack {
+                                    Text("Deleted \(entry.deletedAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundStyle(AppTheme.faintText)
+                                    Spacer()
+                                    Text("Long press for actions")
+                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(AppTheme.faintText)
+                                }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .contextMenu {
+                            Button {
+                                store.restoreRecentlyDeletedExpense(entry.id)
+                            } label: {
+                                Label("Restore", systemImage: "arrow.uturn.backward")
+                            }
+
+                            Button(role: .destructive) {
+                                selectedPermanentDeleteID = entry.id
+                            } label: {
+                                Label("Delete Permanently", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 24)
+        }
+        .background(AppCanvasBackground())
+        .navigationTitle("Recently Deleted")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+            if !store.recentlyDeletedExpenses.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) {
+                        showingClearAllRecentlyDeletedConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete permanently?",
+            isPresented: Binding(
+                get: { selectedPermanentDeleteID != nil },
+                set: { if !$0 { selectedPermanentDeleteID = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let id = selectedPermanentDeleteID {
+                    store.permanentlyDeleteRecentlyDeletedExpense(id)
+                }
+                selectedPermanentDeleteID = nil
+            }
+            Button("Cancel", role: .cancel) {
+                selectedPermanentDeleteID = nil
+            }
+        } message: {
+            Text("This cannot be undone.")
+        }
+        .confirmationDialog(
+            "Clear all recently deleted?",
+            isPresented: $showingClearAllRecentlyDeletedConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                store.clearAllRecentlyDeletedExpenses()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently deletes all items in Recently Deleted.")
+        }
+    }
 }
 
 private enum SavedCardFilter: Hashable {
