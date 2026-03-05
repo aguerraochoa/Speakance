@@ -7,6 +7,7 @@ enum ExpenseSource: String, Codable, CaseIterable, Sendable {
 
 enum ParseStatus: String, Codable, Sendable {
     case auto
+    case needsReview = "needs_review"
     case edited
     case failed
 }

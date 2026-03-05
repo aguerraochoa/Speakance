@@ -247,8 +247,9 @@ final class AudioCaptureService: NSObject, ObservableObject {
         recorder?.stop()
         recorder = nil
 
-        let duration = min(max(1, Int(Date().timeIntervalSince(startedAt))), maxDurationSeconds)
-        if !triggeredByAutoStop && duration < minimumUsefulDurationSeconds {
+        let elapsedSeconds = Date().timeIntervalSince(startedAt)
+        let duration = min(max(1, Int(elapsedSeconds.rounded(.up))), maxDurationSeconds)
+        if !triggeredByAutoStop && elapsedSeconds < Double(minimumUsefulDurationSeconds) {
             try? FileManager.default.removeItem(at: fileURL)
             lastErrorMessage = "Hold a bit longer to record (minimum \(minimumUsefulDurationSeconds)s)."
             state = .idle

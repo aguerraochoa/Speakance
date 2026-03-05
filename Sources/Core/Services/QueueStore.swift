@@ -2,25 +2,45 @@ import Foundation
 
 protocol QueueStoreProtocol: AnyObject {
     var onPersistenceError: ((String) -> Void)? { get set }
-    func loadQueue() -> [QueuedCapture]
-    func saveQueue(_ queue: [QueuedCapture])
+    func loadQueue(scopeKey: String?) -> [QueuedCapture]
+    func saveQueue(_ queue: [QueuedCapture], scopeKey: String?)
 }
 
 protocol ExpenseLedgerStoreProtocol: AnyObject {
     var onPersistenceError: ((String) -> Void)? { get set }
-    func loadExpenses() -> [ExpenseRecord]
-    func saveExpenses(_ expenses: [ExpenseRecord])
+    func loadExpenses(scopeKey: String?) -> [ExpenseRecord]
+    func saveExpenses(_ expenses: [ExpenseRecord], scopeKey: String?)
+}
+
+extension QueueStoreProtocol {
+    func loadQueue() -> [QueuedCapture] {
+        loadQueue(scopeKey: nil)
+    }
+
+    func saveQueue(_ queue: [QueuedCapture]) {
+        saveQueue(queue, scopeKey: nil)
+    }
+}
+
+extension ExpenseLedgerStoreProtocol {
+    func loadExpenses() -> [ExpenseRecord] {
+        loadExpenses(scopeKey: nil)
+    }
+
+    func saveExpenses(_ expenses: [ExpenseRecord]) {
+        saveExpenses(expenses, scopeKey: nil)
+    }
 }
 
 final class InMemoryQueueStore: QueueStoreProtocol {
     private var queue: [QueuedCapture] = []
     var onPersistenceError: ((String) -> Void)?
 
-    func loadQueue() -> [QueuedCapture] {
+    func loadQueue(scopeKey _: String?) -> [QueuedCapture] {
         queue
     }
 
-    func saveQueue(_ queue: [QueuedCapture]) {
+    func saveQueue(_ queue: [QueuedCapture], scopeKey _: String?) {
         self.queue = queue
     }
 }
@@ -29,17 +49,16 @@ final class InMemoryExpenseLedgerStore: ExpenseLedgerStoreProtocol {
     private var expenses: [ExpenseRecord] = []
     var onPersistenceError: ((String) -> Void)?
 
-    func loadExpenses() -> [ExpenseRecord] {
+    func loadExpenses(scopeKey _: String?) -> [ExpenseRecord] {
         expenses
     }
 
-    func saveExpenses(_ expenses: [ExpenseRecord]) {
+    func saveExpenses(_ expenses: [ExpenseRecord], scopeKey _: String?) {
         self.expenses = expenses
     }
 }
 
 final class FileQueueStore: QueueStoreProtocol {
-    private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let fm: FileManager
@@ -48,7 +67,6 @@ final class FileQueueStore: QueueStoreProtocol {
 
     init(fileManager: FileManager = .default) {
         self.fm = fileManager
-        self.fileURL = Self.makeFileURL(fileManager: fileManager, filename: "queue.json")
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -60,16 +78,18 @@ final class FileQueueStore: QueueStoreProtocol {
         self.decoder = decoder
     }
 
-    func loadQueue() -> [QueuedCapture] {
-        ioQueue.sync {
+    func loadQueue(scopeKey: String?) -> [QueuedCapture] {
+        let fileURL = Self.makeFileURL(fileManager: fm, filename: Self.filename(base: "queue", scopeKey: scopeKey))
+        return ioQueue.sync {
             guard let data = try? Data(contentsOf: fileURL) else { return [] }
             guard let queue = try? decoder.decode([QueuedCapture].self, from: data) else { return [] }
             return queue
         }
     }
 
-    func saveQueue(_ queue: [QueuedCapture]) {
-        ioQueue.async { [fileURL, fm, encoder, onPersistenceError] in
+    func saveQueue(_ queue: [QueuedCapture], scopeKey: String?) {
+        let fileURL = Self.makeFileURL(fileManager: fm, filename: Self.filename(base: "queue", scopeKey: scopeKey))
+        ioQueue.sync { [fileURL, fm, encoder, onPersistenceError] in
             do {
                 let dir = fileURL.deletingLastPathComponent()
                 if !fm.fileExists(atPath: dir.path) {
@@ -98,10 +118,26 @@ final class FileQueueStore: QueueStoreProtocol {
             .appendingPathComponent("Speakance", isDirectory: true)
             .appendingPathComponent(filename)
     }
+
+    fileprivate static func filename(base: String, scopeKey: String?) -> String {
+        guard let scope = normalizedScope(scopeKey), scope != "local" else {
+            return "\(base).json"
+        }
+        return "\(base).\(scope).json"
+    }
+
+    private static func normalizedScope(_ scopeKey: String?) -> String? {
+        guard let raw = scopeKey?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let lowered = raw.lowercased()
+        let invalid = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-").inverted
+        let sanitized = lowered.unicodeScalars.map { invalid.contains($0) ? "-" : Character($0) }
+        return String(sanitized)
+    }
 }
 
 final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
-    private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let fm: FileManager
@@ -110,7 +146,6 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
 
     init(fileManager: FileManager = .default) {
         self.fm = fileManager
-        self.fileURL = FileQueueStore.makeFileURL(fileManager: fileManager, filename: "expenses.json")
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -122,16 +157,24 @@ final class FileExpenseLedgerStore: ExpenseLedgerStoreProtocol {
         self.decoder = decoder
     }
 
-    func loadExpenses() -> [ExpenseRecord] {
-        ioQueue.sync {
+    func loadExpenses(scopeKey: String?) -> [ExpenseRecord] {
+        let fileURL = FileQueueStore.makeFileURL(
+            fileManager: fm,
+            filename: FileQueueStore.filename(base: "expenses", scopeKey: scopeKey)
+        )
+        return ioQueue.sync {
             guard let data = try? Data(contentsOf: fileURL) else { return [] }
             guard let expenses = try? decoder.decode([ExpenseRecord].self, from: data) else { return [] }
             return expenses
         }
     }
 
-    func saveExpenses(_ expenses: [ExpenseRecord]) {
-        ioQueue.async { [fileURL, fm, encoder, onPersistenceError] in
+    func saveExpenses(_ expenses: [ExpenseRecord], scopeKey: String?) {
+        let fileURL = FileQueueStore.makeFileURL(
+            fileManager: fm,
+            filename: FileQueueStore.filename(base: "expenses", scopeKey: scopeKey)
+        )
+        ioQueue.sync { [fileURL, fm, encoder, onPersistenceError] in
             do {
                 let dir = fileURL.deletingLastPathComponent()
                 if !fm.fileExists(atPath: dir.path) {

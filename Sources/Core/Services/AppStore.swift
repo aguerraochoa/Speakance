@@ -12,6 +12,8 @@ final class AppStore: ObservableObject {
     @Published var lastOperationalErrorMessage: String?
     @Published var lastQueueSyncAttemptAt: Date?
     @Published var lastQueueSyncSuccessAt: Date?
+    @Published var lastMetadataSyncAttemptAt: Date?
+    @Published var lastMetadataSyncSuccessAt: Date?
     @Published var shouldShowOnboarding: Bool = false
     @Published var tutorialState: TutorialState = .inactive
     @Published var hasCompletedInteractiveTutorial: Bool = false
@@ -32,24 +34,37 @@ final class AppStore: ObservableObject {
     private let expenseLedgerStore: ExpenseLedgerStoreProtocol
     private let apiClient: ExpenseAPIClientProtocol
     private let cloudMutationPermissionProvider: @Sendable () async -> AuthStore.CloudMutationPermission
+    private let persistenceScopeProvider: @MainActor @Sendable () -> String?
     private let syncEngine = SyncEngine()
     private let metaStore = LocalMetaStore()
     private let recentlyDeletedStore = LocalRecentlyDeletedStore()
+    private let pendingExpenseUpdatesStore = LocalPendingExpenseUpdatesStore()
     private var isSyncingMetadata = false
     private var metadataSyncDirty = false
     private var didEvaluateFirstRunTutorial = false
     private var nextQueueSyncAllowedAt: Date = .distantPast
+    private var pendingRemoteExpenseUpdates: [UUID: ExpenseDraft] = [:]
+    private var activePersistenceScopeKey: String = "local"
+    private var isSyncingPendingRemoteExpenseUpdates = false
     private var lastCloudMutationPermissionLogged: AuthStore.CloudMutationPermission?
     private var lastCloudMutationPermissionLogAt: Date = .distantPast
+    private var hasCompletedInitialCloudSync = false
+    private var hasFetchedCloudStateForCurrentScope = false
+    private var localProfilePreferencesEditedAt: Date = .distantPast
+    private var pendingDeletedCategoryIDs: Set<UUID> = []
+    private var pendingDeletedTripIDs: Set<UUID> = []
+    private var pendingDeletedPaymentMethodIDs: Set<UUID> = []
     private static let authRequiredRetryCooldownSeconds: TimeInterval = 60
     private static let cancellationRetryCooldownSeconds: TimeInterval = 3
     private static let cloudPermissionLogThrottleSeconds: TimeInterval = 20
+    private static let maxPersistedSavedQueueItems = 200
 
     init(
         queueStore: QueueStoreProtocol = FileQueueStore(),
         expenseLedgerStore: ExpenseLedgerStoreProtocol = FileExpenseLedgerStore(),
         apiClient: ExpenseAPIClientProtocol = MockExpenseAPIClient(),
         cloudMutationPermissionProvider: @escaping @Sendable () async -> AuthStore.CloudMutationPermission = { .allowed },
+        persistenceScopeProvider: @escaping @MainActor @Sendable () -> String? = { nil },
         networkMonitor: NetworkMonitor? = nil,
         audioCaptureService: AudioCaptureService? = nil
     ) {
@@ -59,11 +74,13 @@ final class AppStore: ObservableObject {
         self.expenseLedgerStore = expenseLedgerStore
         self.apiClient = apiClient
         self.cloudMutationPermissionProvider = cloudMutationPermissionProvider
+        self.persistenceScopeProvider = persistenceScopeProvider
         self.networkMonitor = resolvedNetworkMonitor
         self.audioCaptureService = resolvedAudioCaptureService
         self.isConnected = resolvedNetworkMonitor.isConnected
-        self.queuedCaptures = Self.normalizedQueueForStartup(Self.deduplicatedQueue(queueStore.loadQueue()))
-        self.expenses = Self.deduplicatedExpenses(expenseLedgerStore.loadExpenses())
+        self.activePersistenceScopeKey = Self.normalizedPersistenceScopeKey(persistenceScopeProvider())
+        self.queuedCaptures = []
+        self.expenses = []
         self.queueStore.onPersistenceError = { [weak self] message in
             Task { @MainActor [weak self] in
                 self?.lastOperationalErrorMessage = message
@@ -75,19 +92,7 @@ final class AppStore: ObservableObject {
             }
         }
 
-        let persistedMeta = metaStore.load()
-        self.categoryDefinitions = Self.deduplicatedCategories(persistedMeta.categories)
-        self.trips = persistedMeta.trips
-        self.paymentMethods = persistedMeta.paymentMethods
-        self.activeTripID = persistedMeta.activeTripID
-        self.defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
-        self.parsingLanguage = Self.normalizedParsingLanguage(persistedMeta.parsingLanguage) ?? .auto
-        self.dailyVoiceLimit = Self.normalizedDailyVoiceLimit(persistedMeta.dailyVoiceLimit) ?? Self.defaultDailyVoiceLimit
-        let hasCompletedInteractiveTutorial = persistedMeta.hasCompletedInteractiveTutorial
-            ?? (persistedMeta.hasCompletedOnboarding == true)
-        self.hasCompletedInteractiveTutorial = hasCompletedInteractiveTutorial
-        self.shouldShowOnboarding = false
-        self.recentlyDeletedExpenses = recentlyDeletedStore.load()
+        reloadLocalState(for: self.activePersistenceScopeKey, shouldPurgeExpiredRecentlyDeleted: false)
         resolvedAudioCaptureService.setPreferredSpeechLocaleIdentifier(self.parsingLanguage.speechLocaleIdentifier)
         purgeExpiredRecentlyDeletedExpenses()
 
@@ -98,10 +103,6 @@ final class AppStore: ObservableObject {
 
         seedDefaultsIfNeeded()
         relinkLocalExpenseReferences()
-        Task {
-            await refreshCloudStateFromServer()
-            await syncQueueIfPossible()
-        }
     }
 
     var categories: [String] {
@@ -134,6 +135,27 @@ final class AppStore: ObservableObject {
 
     var maxVoiceCaptureSeconds: Int {
         audioCaptureService.maxRecordingDurationSeconds
+    }
+
+    func synchronizePersistenceScopeWithAuthIfNeeded() async {
+        let scopeKey = Self.normalizedPersistenceScopeKey(persistenceScopeProvider())
+        guard scopeKey != activePersistenceScopeKey else { return }
+
+        reloadLocalState(for: scopeKey, shouldPurgeExpiredRecentlyDeleted: true)
+        await refreshCloudStateFromServer(preserveLocalExpensesWhenRemoteEmpty: true)
+        await syncQueueIfPossible()
+        await syncPendingRemoteExpenseUpdatesIfPossible()
+    }
+
+    func performInitialCloudSyncIfNeeded() async {
+        guard !hasCompletedInitialCloudSync else { return }
+        guard isConnected else { return }
+        await refreshCloudStateFromServer()
+        guard hasFetchedCloudStateForCurrentScope else { return }
+        hasCompletedInitialCloudSync = true
+        await syncQueueIfPossible()
+        await syncPendingRemoteExpenseUpdatesIfPossible()
+        await syncMetadataToServerIfPossible()
     }
 
     func startRecording() {
@@ -239,10 +261,18 @@ final class AppStore: ObservableObject {
                 )
                 let response = try await apiClient.parseExpense(request)
                 var draft = response.draft
-                draft.tripID = queuedCaptures[index].tripID
-                draft.tripName = queuedCaptures[index].tripName
-                draft.paymentMethodID = queuedCaptures[index].paymentMethodID
-                draft.paymentMethodName = queuedCaptures[index].paymentMethodName
+                if let queuedTripID = queuedCaptures[index].tripID {
+                    draft.tripID = queuedTripID
+                }
+                if Self.hasNonBlankText(queuedCaptures[index].tripName) {
+                    draft.tripName = queuedCaptures[index].tripName
+                }
+                if let queuedPaymentMethodID = queuedCaptures[index].paymentMethodID {
+                    draft.paymentMethodID = queuedPaymentMethodID
+                }
+                if Self.hasNonBlankText(queuedCaptures[index].paymentMethodName) {
+                    draft.paymentMethodName = queuedCaptures[index].paymentMethodName
+                }
 
                 autoDetectPaymentMethodIfNeeded(&draft)
                 autoAssignCategoryIDIfNeeded(&draft)
@@ -254,7 +284,18 @@ final class AppStore: ObservableObject {
 
                 switch response.status {
                 case .saved:
-                    saveParsedDraft(draft, queueID: queuedCaptures[index].id, existingExpenseID: nil, markAsEdited: false)
+                    let didSave = saveParsedDraft(
+                        draft,
+                        queueID: queuedCaptures[index].id,
+                        existingExpenseID: nil,
+                        markAsEdited: false
+                    )
+                    guard didSave else {
+                        queuedCaptures[index].status = .failed
+                        queuedCaptures[index].lastError = lastOperationalErrorMessage ?? "Could not save parsed expense locally."
+                        hadFailure = true
+                        break
+                    }
                     if let savedIndex = queuedCaptures.firstIndex(where: { $0.id == queuedCaptures[index].id }) {
                         queuedCaptures[savedIndex].status = .saved
                         cleanupLocalAudioFileIfNeeded(for: queuedCaptures[savedIndex])
@@ -431,7 +472,7 @@ final class AppStore: ObservableObject {
             return queuedCaptures.first(where: { $0.id == queueID })?.serverExpenseID
         }()
         if let remoteExpenseIDForUpdate {
-            triggerRemoteExpenseUpdate(expenseID: remoteExpenseIDForUpdate, draft: normalizedDraft)
+            enqueueRemoteExpenseUpdate(expenseID: remoteExpenseIDForUpdate, draft: normalizedDraft)
         }
         if let queueID = context.queueID, let idx = queuedCaptures.firstIndex(where: { $0.id == queueID }) {
             cleanupLocalAudioFileIfNeeded(for: queuedCaptures[idx])
@@ -469,6 +510,8 @@ final class AppStore: ObservableObject {
     }
 
     func deleteExpense(_ expense: ExpenseRecord) {
+        pendingRemoteExpenseUpdates.removeValue(forKey: expense.id)
+        persistPendingRemoteExpenseUpdates()
         let removedQueueEntries = queuedCaptures
             .enumerated()
             .filter { _, item in
@@ -577,6 +620,7 @@ final class AppStore: ObservableObject {
         guard let normalized = Self.normalizedCurrencyCode(code) else { return }
         guard defaultCurrencyCode != normalized else { return }
         defaultCurrencyCode = normalized
+        localProfilePreferencesEditedAt = .now
         persistMeta()
         scheduleMetadataSync()
     }
@@ -585,12 +629,15 @@ final class AppStore: ObservableObject {
         guard parsingLanguage != language else { return }
         parsingLanguage = language
         audioCaptureService.setPreferredSpeechLocaleIdentifier(language.speechLocaleIdentifier)
+        localProfilePreferencesEditedAt = .now
         persistMeta()
+        scheduleMetadataSync()
     }
 
-    func refreshCloudStateFromServer() async {
+    func refreshCloudStateFromServer(preserveLocalExpensesWhenRemoteEmpty: Bool = false) async {
         await refreshMetadataFromServer()
-        await refreshExpensesFromServer()
+        await refreshExpensesFromServer(preserveLocalWhenRemoteEmpty: preserveLocalExpensesWhenRemoteEmpty)
+        await syncPendingRemoteExpenseUpdatesIfPossible()
     }
 
     func selectTrip(_ tripID: UUID?) {
@@ -658,6 +705,7 @@ final class AppStore: ObservableObject {
         guard let category = categoryDefinitions.first(where: { $0.id == categoryID }) else { return }
         guard category.name.caseInsensitiveCompare("Other") != .orderedSame else { return }
         categoryDefinitions.removeAll { $0.id == categoryID }
+        pendingDeletedCategoryIDs.insert(categoryID)
         for idx in expenses.indices where expenses[idx].categoryID == categoryID {
             expenses[idx].categoryID = nil
             expenses[idx].category = "Other"
@@ -672,6 +720,10 @@ final class AppStore: ObservableObject {
     func addPaymentMethod(name: String, network: String? = nil, last4: String? = nil, aliases: [String] = []) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard !paymentMethods.contains(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            lastOperationalErrorMessage = "A payment method with that name already exists."
+            return
+        }
         let method = PaymentMethod(
             name: trimmed,
             network: network?.nilIfBlank,
@@ -685,9 +737,19 @@ final class AppStore: ObservableObject {
 
     func updatePaymentMethod(_ updated: PaymentMethod) {
         guard let idx = paymentMethods.firstIndex(where: { $0.id == updated.id }) else { return }
-        paymentMethods[idx] = updated
+        let normalizedName = updated.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty else { return }
+        guard !paymentMethods.contains(where: {
+            $0.id != updated.id && $0.name.caseInsensitiveCompare(normalizedName) == .orderedSame
+        }) else {
+            lastOperationalErrorMessage = "A payment method with that name already exists."
+            return
+        }
+        var normalized = updated
+        normalized.name = normalizedName
+        paymentMethods[idx] = normalized
         for expenseIndex in expenses.indices where expenses[expenseIndex].paymentMethodID == updated.id {
-            expenses[expenseIndex].paymentMethodName = updated.name
+            expenses[expenseIndex].paymentMethodName = normalizedName
             expenses[expenseIndex].updatedAt = .now
         }
         persistExpenses()
@@ -697,6 +759,7 @@ final class AppStore: ObservableObject {
 
     func removePaymentMethod(_ id: UUID) {
         paymentMethods.removeAll { $0.id == id }
+        pendingDeletedPaymentMethodIDs.insert(id)
         for idx in expenses.indices where expenses[idx].paymentMethodID == id {
             expenses[idx].paymentMethodID = nil
             expenses[idx].paymentMethodName = nil
@@ -831,15 +894,23 @@ final class AppStore: ObservableObject {
         parsingLanguage = Self.normalizedParsingLanguage(payload.parsingLanguage) ?? .auto
         audioCaptureService.setPreferredSpeechLocaleIdentifier(parsingLanguage.speechLocaleIdentifier)
         recentlyDeletedExpenses = payload.recentlyDeletedExpenses
+        pendingRemoteExpenseUpdates = [:]
+        pendingDeletedCategoryIDs = []
+        pendingDeletedTripIDs = []
+        pendingDeletedPaymentMethodIDs = []
+        metadataSyncDirty = true
 
         if categoryDefinitions.isEmpty {
             seedDefaultsIfNeeded()
         }
 
+        localProfilePreferencesEditedAt = .now
         persistExpenses()
         persistQueue()
         persistMeta()
         persistRecentlyDeletedExpenses()
+        persistPendingRemoteExpenseUpdates()
+        scheduleMetadataSync()
     }
 
     func tripTotal(_ tripID: UUID?) -> Decimal {
@@ -880,10 +951,11 @@ final class AppStore: ObservableObject {
         categoryTotals(tripID: nil, paymentMethodID: nil)
     }
 
-    private func saveParsedDraft(_ draft: ExpenseDraft, queueID: UUID?, existingExpenseID: UUID?, markAsEdited: Bool) {
+    @discardableResult
+    private func saveParsedDraft(_ draft: ExpenseDraft, queueID: UUID?, existingExpenseID: UUID?, markAsEdited: Bool) -> Bool {
         guard let amount = Self.parseFlexibleDecimal(draft.amountText), amount > 0 else {
             lastOperationalErrorMessage = "Enter a valid amount greater than zero."
-            return
+            return false
         }
         let now = Date()
         let capturedAtDevice = queueID
@@ -909,7 +981,7 @@ final class AppStore: ObservableObject {
             expenses[idx].rawText = draft.rawText.isEmpty ? nil : draft.rawText
             expenses[idx].updatedAt = now
             persistExpenses()
-            return
+            return true
         }
 
         let resolvedExpenseID = queueID
@@ -948,6 +1020,7 @@ final class AppStore: ObservableObject {
         }
         expenses = Self.deduplicatedExpenses(expenses)
         persistExpenses()
+        return true
     }
 
     private func autoAssignCategoryIDIfNeeded(_ draft: inout ExpenseDraft) {
@@ -1050,14 +1123,68 @@ final class AppStore: ObservableObject {
         draft.paymentMethodName = method.name
     }
 
+    private func reloadLocalState(for scopeKey: String, shouldPurgeExpiredRecentlyDeleted: Bool) {
+        activePersistenceScopeKey = scopeKey
+        hasCompletedInitialCloudSync = false
+        hasFetchedCloudStateForCurrentScope = false
+        queuedCaptures = Self.normalizedQueueForStartup(
+            Self.prunedQueue(Self.deduplicatedQueue(queueStore.loadQueue(scopeKey: scopeKey)))
+        )
+        expenses = Self.deduplicatedExpenses(expenseLedgerStore.loadExpenses(scopeKey: scopeKey))
+
+        let persistedMeta = metaStore.load(scopeKey: scopeKey)
+        categoryDefinitions = Self.deduplicatedCategories(persistedMeta.categories)
+        trips = persistedMeta.trips
+        paymentMethods = persistedMeta.paymentMethods
+        activeTripID = persistedMeta.activeTripID
+        defaultCurrencyCode = Self.normalizedCurrencyCode(persistedMeta.defaultCurrencyCode) ?? "USD"
+        parsingLanguage = Self.normalizedParsingLanguage(persistedMeta.parsingLanguage) ?? .auto
+        dailyVoiceLimit = Self.normalizedDailyVoiceLimit(persistedMeta.dailyVoiceLimit) ?? Self.defaultDailyVoiceLimit
+        localProfilePreferencesEditedAt = persistedMeta.profilePreferencesUpdatedAt ?? .distantPast
+        hasCompletedInteractiveTutorial = persistedMeta.hasCompletedInteractiveTutorial
+            ?? (persistedMeta.hasCompletedOnboarding == true)
+        shouldShowOnboarding = false
+        recentlyDeletedExpenses = recentlyDeletedStore.load(scopeKey: scopeKey)
+        pendingRemoteExpenseUpdates = pendingExpenseUpdatesStore.load(scopeKey: scopeKey)
+        pendingDeletedCategoryIDs = Set(persistedMeta.pendingDeletedCategoryIDs ?? [])
+        pendingDeletedTripIDs = Set(persistedMeta.pendingDeletedTripIDs ?? [])
+        pendingDeletedPaymentMethodIDs = Set(persistedMeta.pendingDeletedPaymentMethodIDs ?? [])
+        metadataSyncDirty = persistedMeta.hasPendingMetadataSync ?? false
+        isSyncingQueue = false
+        isSyncingPendingRemoteExpenseUpdates = false
+        lastQueueSyncAttemptAt = nil
+        lastQueueSyncSuccessAt = nil
+        lastMetadataSyncAttemptAt = nil
+        lastMetadataSyncSuccessAt = nil
+        nextQueueSyncAllowedAt = .distantPast
+        activeReview = nil
+        audioCaptureService.setPreferredSpeechLocaleIdentifier(parsingLanguage.speechLocaleIdentifier)
+        seedDefaultsIfNeeded()
+        relinkLocalExpenseReferences()
+        if shouldPurgeExpiredRecentlyDeleted {
+            purgeExpiredRecentlyDeletedExpenses()
+        }
+    }
+
+    private static func normalizedPersistenceScopeKey(_ value: String?) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return "local" }
+
+        let lowered = trimmed.lowercased()
+        let invalid = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-").inverted
+        let sanitized = lowered.unicodeScalars.map { invalid.contains($0) ? "-" : Character($0) }
+        let normalized = String(sanitized).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return normalized.isEmpty ? "local" : normalized
+    }
+
     private func persistQueue() {
-        queuedCaptures = Self.deduplicatedQueue(queuedCaptures)
-        queueStore.saveQueue(queuedCaptures)
+        queuedCaptures = Self.prunedQueue(Self.deduplicatedQueue(queuedCaptures))
+        queueStore.saveQueue(queuedCaptures, scopeKey: activePersistenceScopeKey)
     }
 
     private func persistExpenses() {
         expenses = Self.deduplicatedExpenses(expenses)
-        expenseLedgerStore.saveExpenses(expenses)
+        expenseLedgerStore.saveExpenses(expenses, scopeKey: activePersistenceScopeKey)
     }
 
     private func persistMeta() {
@@ -1069,9 +1196,14 @@ final class AppStore: ObservableObject {
             defaultCurrencyCode: defaultCurrencyCode,
             parsingLanguage: parsingLanguage.rawValue,
             dailyVoiceLimit: dailyVoiceLimit,
+            profilePreferencesUpdatedAt: localProfilePreferencesEditedAt,
+            pendingDeletedCategoryIDs: Array(pendingDeletedCategoryIDs),
+            pendingDeletedTripIDs: Array(pendingDeletedTripIDs),
+            pendingDeletedPaymentMethodIDs: Array(pendingDeletedPaymentMethodIDs),
+            hasPendingMetadataSync: metadataSyncDirty,
             hasCompletedOnboarding: hasCompletedInteractiveTutorial,
             hasCompletedInteractiveTutorial: hasCompletedInteractiveTutorial
-        ))
+        ), scopeKey: activePersistenceScopeKey)
     }
 
     private func addRecentlyDeleted(_ entry: RecentlyDeletedExpenseEntry) {
@@ -1096,7 +1228,11 @@ final class AppStore: ObservableObject {
     }
 
     private func persistRecentlyDeletedExpenses() {
-        recentlyDeletedStore.save(recentlyDeletedExpenses)
+        recentlyDeletedStore.save(recentlyDeletedExpenses, scopeKey: activePersistenceScopeKey)
+    }
+
+    private func persistPendingRemoteExpenseUpdates() {
+        pendingExpenseUpdatesStore.save(pendingRemoteExpenseUpdates, scopeKey: activePersistenceScopeKey)
     }
 
     private func handleNetworkConnectivityChange(_ isConnected: Bool) {
@@ -1105,16 +1241,21 @@ final class AppStore: ObservableObject {
             Task {
                 await refreshCloudStateFromServer()
                 await syncQueueIfPossible()
+                await syncPendingRemoteExpenseUpdatesIfPossible()
+                await syncMetadataToServerIfPossible()
             }
         }
     }
 
     private func scheduleMetadataSync() {
         metadataSyncDirty = true
+        persistMeta()
         Task { await syncMetadataToServerIfPossible() }
     }
 
     private func syncMetadataToServerIfPossible() async {
+        guard hasCompletedInitialCloudSync else { return }
+        guard hasFetchedCloudStateForCurrentScope else { return }
         guard isConnected else { return }
         guard !isSyncingMetadata else { return }
         guard await canPerformCloudMutation(authRequiredMessage: "Metadata sync paused (auth required)") else { return }
@@ -1126,16 +1267,30 @@ final class AppStore: ObservableObject {
                 categories: categoryDefinitions,
                 trips: trips,
                 paymentMethods: paymentMethods,
+                deletedCategoryIDs: Array(pendingDeletedCategoryIDs),
+                deletedTripIDs: Array(pendingDeletedTripIDs),
+                deletedPaymentMethodIDs: Array(pendingDeletedPaymentMethodIDs),
                 activeTripID: activeTripID,
                 defaultCurrencyCode: defaultCurrencyCode,
-                dailyVoiceLimit: dailyVoiceLimit
+                parsingLanguage: parsingLanguage.rawValue,
+                dailyVoiceLimit: dailyVoiceLimit,
+                profileUpdatedAt: nil
             )
             do {
+                lastMetadataSyncAttemptAt = .now
                 try await apiClient.syncMetadata(snapshot)
+                lastMetadataSyncSuccessAt = .now
+                metadataSyncDirty = false
+                pendingDeletedCategoryIDs.removeAll()
+                pendingDeletedTripIDs.removeAll()
+                pendingDeletedPaymentMethodIDs.removeAll()
+                localProfilePreferencesEditedAt = .now
+                persistMeta()
             } catch {
                 logOperationalError("Metadata sync failed", details: ["error": error.localizedDescription])
                 // Keep pending changes marked dirty so we can retry later.
                 metadataSyncDirty = true
+                persistMeta()
                 break
             }
         }
@@ -1145,6 +1300,13 @@ final class AppStore: ObservableObject {
         guard isConnected else { return }
         do {
             guard let snapshot = try await apiClient.fetchMetadata() else { return }
+            hasFetchedCloudStateForCurrentScope = true
+            lastMetadataSyncSuccessAt = .now
+            if metadataSyncDirty {
+                // Keep local pending metadata edits authoritative until they are pushed.
+                scheduleMetadataSync()
+                return
+            }
             categoryDefinitions = mergeRemoteCategories(snapshot.categories)
 
             // Keep local metadata when remote returns empty arrays to avoid erasing
@@ -1163,11 +1325,26 @@ final class AppStore: ObservableObject {
                 scheduleMetadataSync()
             }
 
-            if let remoteDefault = Self.normalizedCurrencyCode(snapshot.defaultCurrencyCode) {
-                defaultCurrencyCode = remoteDefault
-            }
-            if let remoteDailyVoiceLimit = Self.normalizedDailyVoiceLimit(snapshot.dailyVoiceLimit) {
-                dailyVoiceLimit = remoteDailyVoiceLimit
+            let canApplyRemoteProfilePrefs: Bool = {
+                guard let remoteUpdatedAt = snapshot.profileUpdatedAt else {
+                    return !metadataSyncDirty
+                }
+                return remoteUpdatedAt >= localProfilePreferencesEditedAt
+            }()
+            if canApplyRemoteProfilePrefs {
+                if let remoteDefault = Self.normalizedCurrencyCode(snapshot.defaultCurrencyCode) {
+                    defaultCurrencyCode = remoteDefault
+                }
+                if let remoteLanguage = Self.normalizedParsingLanguage(snapshot.parsingLanguage) {
+                    parsingLanguage = remoteLanguage
+                    audioCaptureService.setPreferredSpeechLocaleIdentifier(remoteLanguage.speechLocaleIdentifier)
+                }
+                if let remoteDailyVoiceLimit = Self.normalizedDailyVoiceLimit(snapshot.dailyVoiceLimit) {
+                    dailyVoiceLimit = remoteDailyVoiceLimit
+                }
+                if let remoteUpdatedAt = snapshot.profileUpdatedAt {
+                    localProfilePreferencesEditedAt = remoteUpdatedAt
+                }
             }
             if let active = snapshot.activeTripID, trips.contains(where: { $0.id == active }) {
                 activeTripID = active
@@ -1184,19 +1361,32 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func refreshExpensesFromServer() async {
+    private func refreshExpensesFromServer(preserveLocalWhenRemoteEmpty: Bool = false) async {
         guard isConnected else { return }
         purgeExpiredRecentlyDeletedExpenses()
         do {
             let remoteExpenses = try await apiClient.fetchExpenses()
+            hasFetchedCloudStateForCurrentScope = true
             let hiddenIDs = Set(recentlyDeletedExpenses.map(\.id))
             let visibleRemoteExpenses = remoteExpenses.filter { !hiddenIDs.contains($0.id) }
             let deduplicatedRemote = Self.deduplicatedExpenses(visibleRemoteExpenses)
-            if deduplicatedRemote != expenses {
-                expenses = deduplicatedRemote
+            if preserveLocalWhenRemoteEmpty, deduplicatedRemote.isEmpty, !expenses.isEmpty {
+                logOperationalInfo("Skipped empty remote expense overwrite after scope switch", details: [
+                    "scopeKey": activePersistenceScopeKey,
+                    "localCount": "\(expenses.count)"
+                ])
+                return
+            }
+            let mergedExpenses = mergeRemoteExpensesPreservingPendingLocalEdits(deduplicatedRemote)
+            if mergedExpenses != expenses {
+                expenses = mergedExpenses
+                relinkLocalExpenseReferences()
                 persistExpenses()
             }
         } catch {
+            if Self.isAuthenticationError(error) {
+                return
+            }
             if Self.isExpectedCancellation(error) {
                 return
             }
@@ -1211,6 +1401,10 @@ final class AppStore: ObservableObject {
             return true
         }
         return false
+    }
+
+    private static func hasNonBlankText(_ value: String?) -> Bool {
+        return (value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
     }
 
     private func mergeRemoteCategories(_ remote: [CategoryDefinition]) -> [CategoryDefinition] {
@@ -1232,13 +1426,29 @@ final class AppStore: ObservableObject {
                     didChange = true
                 }
             }
+
+            if let tripID = expenses[idx].tripID,
+               let matchedName = trips.first(where: { $0.id == tripID })?.name,
+               expenses[idx].tripName?.trimmingCharacters(in: .whitespacesAndNewlines) != matchedName {
+                expenses[idx].tripName = matchedName
+                didChange = true
+            }
             if let tripName = expenses[idx].tripName,
+               !tripName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let trip = trips.first(where: { $0.name.caseInsensitiveCompare(tripName) == .orderedSame }),
                expenses[idx].tripID != trip.id {
                 expenses[idx].tripID = trip.id
                 didChange = true
             }
+
+            if let paymentMethodID = expenses[idx].paymentMethodID,
+               let matchedName = paymentMethods.first(where: { $0.id == paymentMethodID })?.name,
+               expenses[idx].paymentMethodName?.trimmingCharacters(in: .whitespacesAndNewlines) != matchedName {
+                expenses[idx].paymentMethodName = matchedName
+                didChange = true
+            }
             if let paymentName = expenses[idx].paymentMethodName,
+               !paymentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let method = paymentMethods.first(where: { $0.name.caseInsensitiveCompare(paymentName) == .orderedSame }),
                expenses[idx].paymentMethodID != method.id {
                 expenses[idx].paymentMethodID = method.id
@@ -1262,28 +1472,83 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func triggerRemoteExpenseUpdate(expenseID: UUID, draft: ExpenseDraft) {
-        Task { [apiClient, cloudMutationPermissionProvider] in
+    private func enqueueRemoteExpenseUpdate(expenseID: UUID, draft: ExpenseDraft) {
+        pendingRemoteExpenseUpdates[expenseID] = draft
+        persistPendingRemoteExpenseUpdates()
+        Task { await syncPendingRemoteExpenseUpdatesIfPossible() }
+    }
+
+    private func syncPendingRemoteExpenseUpdatesIfPossible() async {
+        guard isConnected else { return }
+        guard !pendingRemoteExpenseUpdates.isEmpty else { return }
+        guard !isSyncingPendingRemoteExpenseUpdates else { return }
+        guard await canPerformCloudMutation(authRequiredMessage: "Expense update sync paused (auth required)") else { return }
+
+        isSyncingPendingRemoteExpenseUpdates = true
+        defer { isSyncingPendingRemoteExpenseUpdates = false }
+
+        while isConnected, let (expenseID, draft) = pendingRemoteExpenseUpdates.first {
             do {
-                let permission = await cloudMutationPermissionProvider()
-                guard permission == .allowed else {
-                    await MainActor.run {
-                        lastOperationalErrorMessage = permission == .authRequired
-                            ? "Sign in is required before syncing changes to the server."
-                            : "Cloud sync is waiting for auth validation. Local changes were kept."
-                    }
-                    return
-                }
                 try await apiClient.updateExpense(UpdateExpenseRequestDTO(expenseID: expenseID, draft: draft))
+                pendingRemoteExpenseUpdates.removeValue(forKey: expenseID)
+                persistPendingRemoteExpenseUpdates()
             } catch {
-                await MainActor.run {
-                    lastOperationalErrorMessage = "Could not update expense on server. Local changes were kept."
-                    #if DEBUG
-                    print("[Speakance] remote expense update failed id=\(expenseID.uuidString): \(error.localizedDescription)")
-                    #endif
+                if Self.isAuthenticationError(error) || Self.isCancellationError(error) {
+                    break
                 }
+                lastOperationalErrorMessage = "Could not update expense on server. Local changes were kept."
+                #if DEBUG
+                print("[Speakance] remote expense update failed id=\(expenseID.uuidString): \(error.localizedDescription)")
+                #endif
+                break
             }
         }
+    }
+
+    private func mergeRemoteExpensesPreservingPendingLocalEdits(_ remote: [ExpenseRecord]) -> [ExpenseRecord] {
+        guard !pendingRemoteExpenseUpdates.isEmpty else {
+            return Self.deduplicatedExpenses(remote.map { remoteExpense in
+                guard let localExpense = expenses.first(where: {
+                    $0.id == remoteExpense.id || $0.clientExpenseID == remoteExpense.clientExpenseID
+                }) else { return remoteExpense }
+                return Self.expenseWithPreservedLocalMetadata(fromRemote: remoteExpense, local: localExpense)
+            })
+        }
+
+        let localByID = Dictionary(uniqueKeysWithValues: expenses.map { ($0.id, $0) })
+        let localByClientID = Dictionary(uniqueKeysWithValues: expenses.map { ($0.clientExpenseID, $0) })
+        var byID = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+
+        for localExpense in expenses where pendingRemoteExpenseUpdates[localExpense.id] != nil {
+            byID[localExpense.id] = localExpense
+        }
+
+        let merged = byID.values.map { remoteExpense -> ExpenseRecord in
+            let hasPendingLocalEdit = pendingRemoteExpenseUpdates[remoteExpense.id] != nil
+            guard !hasPendingLocalEdit else { return remoteExpense }
+
+            let localExpense = localByID[remoteExpense.id] ?? localByClientID[remoteExpense.clientExpenseID]
+            guard let localExpense else { return remoteExpense }
+            return Self.expenseWithPreservedLocalMetadata(fromRemote: remoteExpense, local: localExpense)
+        }
+        return Self.deduplicatedExpenses(merged)
+    }
+
+    private static func expenseWithPreservedLocalMetadata(fromRemote remote: ExpenseRecord, local: ExpenseRecord) -> ExpenseRecord {
+        var merged = remote
+        if merged.tripID == nil {
+            merged.tripID = local.tripID
+        }
+        if merged.tripName == nil || merged.tripName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            merged.tripName = local.tripName
+        }
+        if merged.paymentMethodID == nil {
+            merged.paymentMethodID = local.paymentMethodID
+        }
+        if merged.paymentMethodName == nil || merged.paymentMethodName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            merged.paymentMethodName = local.paymentMethodName
+        }
+        return merged
     }
 
     private func logOperationalError(_ message: String, details: [String: String] = [:]) {
@@ -1545,6 +1810,19 @@ private extension AppStore {
         return result
     }
 
+    static func prunedQueue(_ items: [QueuedCapture]) -> [QueuedCapture] {
+        var keptSaved = 0
+        var pruned: [QueuedCapture] = []
+        for item in items {
+            if item.status == .saved {
+                guard keptSaved < maxPersistedSavedQueueItems else { continue }
+                keptSaved += 1
+            }
+            pruned.append(item)
+        }
+        return pruned
+    }
+
     static func normalizedQueueForStartup(_ items: [QueuedCapture]) -> [QueuedCapture] {
         items.map { item in
             var normalized = item
@@ -1713,6 +1991,11 @@ private final class LocalMetaStore {
         var defaultCurrencyCode: String?
         var parsingLanguage: String?
         var dailyVoiceLimit: Int?
+        var profilePreferencesUpdatedAt: Date?
+        var pendingDeletedCategoryIDs: [UUID]?
+        var pendingDeletedTripIDs: [UUID]?
+        var pendingDeletedPaymentMethodIDs: [UUID]?
+        var hasPendingMetadataSync: Bool?
         var hasCompletedOnboarding: Bool?
         var hasCompletedInteractiveTutorial: Bool?
 
@@ -1724,6 +2007,11 @@ private final class LocalMetaStore {
             case defaultCurrencyCode
             case parsingLanguage
             case dailyVoiceLimit
+            case profilePreferencesUpdatedAt
+            case pendingDeletedCategoryIDs
+            case pendingDeletedTripIDs
+            case pendingDeletedPaymentMethodIDs
+            case hasPendingMetadataSync
             case hasCompletedOnboarding
             case hasCompletedInteractiveTutorial
         }
@@ -1736,6 +2024,11 @@ private final class LocalMetaStore {
             defaultCurrencyCode: String?,
             parsingLanguage: String?,
             dailyVoiceLimit: Int?,
+            profilePreferencesUpdatedAt: Date?,
+            pendingDeletedCategoryIDs: [UUID]?,
+            pendingDeletedTripIDs: [UUID]?,
+            pendingDeletedPaymentMethodIDs: [UUID]?,
+            hasPendingMetadataSync: Bool?,
             hasCompletedOnboarding: Bool?,
             hasCompletedInteractiveTutorial: Bool?
         ) {
@@ -1746,6 +2039,11 @@ private final class LocalMetaStore {
             self.defaultCurrencyCode = defaultCurrencyCode
             self.parsingLanguage = parsingLanguage
             self.dailyVoiceLimit = dailyVoiceLimit
+            self.profilePreferencesUpdatedAt = profilePreferencesUpdatedAt
+            self.pendingDeletedCategoryIDs = pendingDeletedCategoryIDs
+            self.pendingDeletedTripIDs = pendingDeletedTripIDs
+            self.pendingDeletedPaymentMethodIDs = pendingDeletedPaymentMethodIDs
+            self.hasPendingMetadataSync = hasPendingMetadataSync
             self.hasCompletedOnboarding = hasCompletedOnboarding
             self.hasCompletedInteractiveTutorial = hasCompletedInteractiveTutorial
         }
@@ -1759,16 +2057,22 @@ private final class LocalMetaStore {
             defaultCurrencyCode = try container.decodeIfPresent(String.self, forKey: .defaultCurrencyCode)
             parsingLanguage = try container.decodeIfPresent(String.self, forKey: .parsingLanguage)
             dailyVoiceLimit = try container.decodeIfPresent(Int.self, forKey: .dailyVoiceLimit)
+            profilePreferencesUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .profilePreferencesUpdatedAt)
+            pendingDeletedCategoryIDs = try container.decodeIfPresent([UUID].self, forKey: .pendingDeletedCategoryIDs)
+            pendingDeletedTripIDs = try container.decodeIfPresent([UUID].self, forKey: .pendingDeletedTripIDs)
+            pendingDeletedPaymentMethodIDs = try container.decodeIfPresent([UUID].self, forKey: .pendingDeletedPaymentMethodIDs)
+            hasPendingMetadataSync = try container.decodeIfPresent(Bool.self, forKey: .hasPendingMetadataSync)
             hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding)
             hasCompletedInteractiveTutorial = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedInteractiveTutorial)
         }
     }
 
-    private let key = "speakance.local-meta.v1"
+    private let baseKey = "speakance.local-meta.v1"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let userDefaults: UserDefaults
 
-    init() {
+    init(userDefaults: UserDefaults = defaultUserDefaults()) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -1776,38 +2080,59 @@ private final class LocalMetaStore {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
+        self.userDefaults = userDefaults
     }
 
-    func load() -> Payload {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let payload = try? decoder.decode(Payload.self, from: data) else {
-            return Payload(
-                categories: [],
-                trips: [],
-                paymentMethods: [],
-                activeTripID: nil,
-                defaultCurrencyCode: nil,
-                parsingLanguage: nil,
-                dailyVoiceLimit: nil,
-                hasCompletedOnboarding: nil,
-                hasCompletedInteractiveTutorial: nil
-            )
+    func load(scopeKey: String?) -> Payload {
+        let key = scopedKey(scopeKey)
+        if let data = userDefaults.data(forKey: key),
+           let payload = try? decoder.decode(Payload.self, from: data) {
+            return payload
         }
-        return payload
+        return Payload(
+            categories: [],
+            trips: [],
+            paymentMethods: [],
+            activeTripID: nil,
+            defaultCurrencyCode: nil,
+            parsingLanguage: nil,
+            dailyVoiceLimit: nil,
+            profilePreferencesUpdatedAt: nil,
+            pendingDeletedCategoryIDs: nil,
+            pendingDeletedTripIDs: nil,
+            pendingDeletedPaymentMethodIDs: nil,
+            hasPendingMetadataSync: nil,
+            hasCompletedOnboarding: nil,
+            hasCompletedInteractiveTutorial: nil
+        )
     }
 
-    func save(_ payload: Payload) {
+    func save(_ payload: Payload, scopeKey: String?) {
+        let key = scopedKey(scopeKey)
         guard let data = try? encoder.encode(payload) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        userDefaults.set(data, forKey: key)
+    }
+
+    private static func defaultUserDefaults() -> UserDefaults {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else { return .standard }
+        return UserDefaults(suiteName: "com.speakance.meta.tests.\(ProcessInfo.processInfo.processIdentifier)") ?? .standard
+    }
+
+    private func scopedKey(_ scopeKey: String?) -> String {
+        guard let scope = scopeKey?.trimmingCharacters(in: .whitespacesAndNewlines), !scope.isEmpty, scope != "local" else {
+            return baseKey
+        }
+        return "\(baseKey).\(scope)"
     }
 }
 
 private final class LocalRecentlyDeletedStore {
-    private let key = "speakance.recently-deleted-expenses.v1"
+    private let baseKey = "speakance.recently-deleted-expenses.v1"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let userDefaults: UserDefaults
 
-    init() {
+    init(userDefaults: UserDefaults = defaultUserDefaults()) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -1815,19 +2140,87 @@ private final class LocalRecentlyDeletedStore {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
+        self.userDefaults = userDefaults
     }
 
-    func load() -> [RecentlyDeletedExpenseEntry] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let payload = try? decoder.decode([RecentlyDeletedExpenseEntry].self, from: data) else {
-            return []
+    func load(scopeKey: String?) -> [RecentlyDeletedExpenseEntry] {
+        let key = scopedKey(scopeKey)
+        if let data = userDefaults.data(forKey: key),
+           let payload = try? decoder.decode([RecentlyDeletedExpenseEntry].self, from: data) {
+            return payload
         }
-        return payload
+        return []
     }
 
-    func save(_ payload: [RecentlyDeletedExpenseEntry]) {
+    func save(_ payload: [RecentlyDeletedExpenseEntry], scopeKey: String?) {
+        let key = scopedKey(scopeKey)
         guard let data = try? encoder.encode(payload) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        userDefaults.set(data, forKey: key)
+    }
+
+    private static func defaultUserDefaults() -> UserDefaults {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else { return .standard }
+        return UserDefaults(suiteName: "com.speakance.recently-deleted.tests.\(ProcessInfo.processInfo.processIdentifier)") ?? .standard
+    }
+
+    private func scopedKey(_ scopeKey: String?) -> String {
+        guard let scope = scopeKey?.trimmingCharacters(in: .whitespacesAndNewlines), !scope.isEmpty, scope != "local" else {
+            return baseKey
+        }
+        return "\(baseKey).\(scope)"
+    }
+}
+
+private struct PendingRemoteExpenseUpdateEntry: Codable {
+    var expenseID: UUID
+    var draft: ExpenseDraft
+}
+
+private final class LocalPendingExpenseUpdatesStore {
+    private let baseKey = "speakance.pending-remote-expense-updates.v1"
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+    private let userDefaults: UserDefaults
+
+    init(userDefaults: UserDefaults = defaultUserDefaults()) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+        self.userDefaults = userDefaults
+    }
+
+    func load(scopeKey: String?) -> [UUID: ExpenseDraft] {
+        let key = scopedKey(scopeKey)
+        if let data = userDefaults.data(forKey: key),
+           let entries = try? decoder.decode([PendingRemoteExpenseUpdateEntry].self, from: data) {
+            return Dictionary(uniqueKeysWithValues: entries.map { ($0.expenseID, $0.draft) })
+        }
+        return [:]
+    }
+
+    func save(_ payload: [UUID: ExpenseDraft], scopeKey: String?) {
+        let key = scopedKey(scopeKey)
+        let entries = payload
+            .map { PendingRemoteExpenseUpdateEntry(expenseID: $0.key, draft: $0.value) }
+            .sorted { $0.expenseID.uuidString < $1.expenseID.uuidString }
+        guard let data = try? encoder.encode(entries) else { return }
+        userDefaults.set(data, forKey: key)
+    }
+
+    private static func defaultUserDefaults() -> UserDefaults {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil else { return .standard }
+        return UserDefaults(suiteName: "com.speakance.pending-updates.tests.\(ProcessInfo.processInfo.processIdentifier)") ?? .standard
+    }
+
+    private func scopedKey(_ scopeKey: String?) -> String {
+        guard let scope = scopeKey?.trimmingCharacters(in: .whitespacesAndNewlines), !scope.isEmpty, scope != "local" else {
+            return baseKey
+        }
+        return "\(baseKey).\(scope)"
     }
 }
 

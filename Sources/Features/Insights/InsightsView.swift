@@ -21,7 +21,7 @@ struct InsightsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
-                .padding(.bottom, max(28, proxy.safeAreaInsets.bottom + 8))
+                .padding(.bottom, max(10, proxy.safeAreaInsets.bottom + 2))
             }
             .background(AppCanvasBackground())
         }
@@ -540,18 +540,41 @@ struct InsightsView: View {
     }
 
     private var dailyAverage: Decimal {
-        let divisor = max(1, selectedTripID == nil ? Calendar.current.component(.day, from: .now) : scopedExpenses.count)
+        let calendar = Calendar.current
+        let divisor: Int = {
+            switch selectedMonthFilter {
+            case let .month(year, month):
+                var components = DateComponents()
+                components.year = year
+                components.month = month
+                components.day = 1
+                guard let monthDate = calendar.date(from: components),
+                      let dayRange = calendar.range(of: .day, in: .month, for: monthDate) else {
+                    return max(1, scopedExpenses.count)
+                }
+                return max(1, dayRange.count)
+            case .all:
+                guard let minDate = scopedExpenses.map(\.expenseDate).min(),
+                      let maxDate = scopedExpenses.map(\.expenseDate).max() else {
+                    return 1
+                }
+                let start = calendar.startOfDay(for: minDate)
+                let end = calendar.startOfDay(for: maxDate)
+                let inclusiveEnd = calendar.date(byAdding: .day, value: 1, to: end) ?? end
+                let days = calendar.dateComponents([.day], from: start, to: inclusiveEnd).day ?? 1
+                return max(1, days)
+            }
+        }()
         let total = NSDecimalNumber(decimal: scopedTotal).doubleValue
         return Decimal(total / Double(divisor))
     }
 
     private func insightsCurrencyString(_ amount: Decimal) -> String {
-        let roundedDouble = NSDecimalNumber(decimal: amount).doubleValue.rounded()
         return CurrencyFormatter.string(
-            Decimal(roundedDouble),
+            amount,
             currency: selectedCurrencyCode,
             minimumFractionDigits: 0,
-            maximumFractionDigits: 0
+            maximumFractionDigits: 2
         )
     }
 

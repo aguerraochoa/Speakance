@@ -1,0 +1,7 @@
+// Base app configuration. Local.xcconfig (gitignored) can override these.
+SUPABASE_URL =
+SUPABASE_ANON_KEY =
+WEB_AUTH_BASE_URL =
+WEB_AUTH_BASE_HOST = speakance.app
+
+#include? "Local.xcconfig"

@@ -7,6 +7,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     var authenticationFailureHandler: @Sendable (String?) async -> Void = { _ in }
     var session: URLSession = .shared
     var voiceCapturesBucket = "voice-captures"
+    private static let clientInfoHeaderValue = "supabase-swift/1.0"
 
     func parseExpense(_ request: ParseExpenseRequestDTO) async throws -> ParseExpenseResponseDTO {
         try await executeCloudMutationWithSingleAuthRetry(operation: "parseExpense") { accessToken in
@@ -26,6 +27,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = 20
+        Self.applySupabaseHeaders(&urlRequest, config: config)
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
         urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -50,23 +52,23 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         ])
 
         let decoder = JSONDecoder()
-        let apiResponse: SupabaseParseExpenseResponsePayload
-        do {
-            apiResponse = try decoder.decode(SupabaseParseExpenseResponsePayload.self, from: data)
-        } catch {
-            throw ExpenseAPIError.server("Unexpected server response. \(error.localizedDescription)")
-        }
+        let apiResponse = try? decoder.decode(SupabaseParseExpenseResponsePayload.self, from: data)
 
         switch http.statusCode {
-        case 200 where apiResponse.status == "saved" || apiResponse.status == "needs_review":
+        case 200:
+            guard let apiResponse else {
+                throw ExpenseAPIError.server("Unexpected server response.")
+            }
+            guard apiResponse.status == "saved" || apiResponse.status == "needs_review" else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                throw ExpenseAPIError.server(apiResponse.error ?? apiResponse.message ?? (body.isEmpty ? "Unexpected server error" : body))
+            }
             let parsed = apiResponse.parse
             let parseConfidence = parsed?.confidence ?? (apiResponse.status == "saved" ? 0.95 : 0.5)
             let parseRawText = (parsed?.rawText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 ? parsed?.rawText
                 : request.rawText)
                 ?? ""
-            if parsed == nil || apiResponse.parse?.confidence == nil || apiResponse.parse?.rawText == nil {
-            }
             guard let expense = apiResponse.expense else {
                 throw ExpenseAPIError.server("Missing expense payload")
             }
@@ -86,7 +88,10 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
                 currency: serverCurrency,
                 category: serverCategory,
                 categoryID: expense.categoryId.flatMap(UUID.init(uuidString:)),
-                description: expense.description ?? request.rawText,
+                description: {
+                    let cleaned = expense.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return cleaned.isEmpty ? "\(serverCategory) expense" : cleaned
+                }(),
                 merchant: expense.merchant ?? "",
                 tripID: expense.tripId.flatMap(UUID.init(uuidString:)) ?? request.tripID,
                 tripName: expense.tripName ?? request.tripName,
@@ -105,9 +110,9 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
                 serverExpenseID: expense.id.flatMap(UUID.init(uuidString:))
             )
 
-        case 401:
+        case 401, 403:
             let body = String(data: data, encoding: .utf8) ?? ""
-            let reason = apiResponse.error ?? apiResponse.message ?? (body.isEmpty ? "Unauthorized" : body)
+            let reason = apiResponse?.error ?? apiResponse?.message ?? (body.isEmpty ? "Unauthorized" : body)
             logNetwork("parseExpense unauthorized", details: [
                 "clientExpenseID": request.clientExpenseID.uuidString,
                 "reason": reason,
@@ -115,10 +120,10 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             ])
             throw ExpenseAPIError.unauthorized(reason)
         case 429:
-            throw ExpenseAPIError.limitExceeded(apiResponse.error ?? "Daily voice limit reached")
+            throw ExpenseAPIError.limitExceeded(apiResponse?.error ?? apiResponse?.message ?? "Daily voice limit reached")
         default:
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw ExpenseAPIError.server(apiResponse.error ?? apiResponse.message ?? (body.isEmpty ? "Unexpected server error" : body))
+            throw ExpenseAPIError.server(apiResponse?.error ?? apiResponse?.message ?? (body.isEmpty ? "Unexpected server error" : body))
         }
     }
 
@@ -130,6 +135,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             ]))
             urlRequest.httpMethod = "PATCH"
             urlRequest.timeoutInterval = 20
+            Self.applySupabaseHeaders(&urlRequest, config: config)
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
             urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
             urlRequest.setValue("representation", forHTTPHeaderField: "Prefer")
@@ -158,6 +164,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             ]))
             urlRequest.httpMethod = "DELETE"
             urlRequest.timeoutInterval = 20
+            Self.applySupabaseHeaders(&urlRequest, config: config)
             urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
             urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
             urlRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -176,10 +183,21 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     func syncMetadata(_ snapshot: UserMetadataSyncSnapshotDTO) async throws {
         try await executeCloudMutationWithSingleAuthRetry(operation: "syncMetadata") { accessToken in
             try await syncProfilePreferences(snapshot, accessToken: accessToken)
-            let remoteSnapshot = try await fetchMetadataInternal(accessToken: accessToken)
-            try await syncCategories(snapshot.categories, remote: remoteSnapshot.categories, accessToken: accessToken)
-            try await syncTrips(snapshot.trips, remote: remoteSnapshot.trips, accessToken: accessToken)
-            try await syncPaymentMethods(snapshot.paymentMethods, remote: remoteSnapshot.paymentMethods, accessToken: accessToken)
+            try await syncCategories(
+                snapshot.categories,
+                deletedIDs: snapshot.deletedCategoryIDs,
+                accessToken: accessToken
+            )
+            try await syncTrips(
+                snapshot.trips,
+                deletedIDs: snapshot.deletedTripIDs,
+                accessToken: accessToken
+            )
+            try await syncPaymentMethods(
+                snapshot.paymentMethods,
+                deletedIDs: snapshot.deletedPaymentMethodIDs,
+                accessToken: accessToken
+            )
         }
     }
 
@@ -189,7 +207,9 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
     }
 
     func fetchExpenses() async throws -> [ExpenseRecord] {
-        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else { return [] }
+        guard let accessToken = await accessTokenProvider(), !accessToken.isEmpty else {
+            throw ExpenseAPIError.missingAuthSession
+        }
         let decoder = makeSupabaseDecoder()
         var request = makeJSONRequest(
             url: try makeRestURL(path: "expenses", queryItems: [
@@ -243,11 +263,17 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
 
     private func makeJSONRequest(url: URL, accessToken: String) -> URLRequest {
         var request = URLRequest(url: url)
+        Self.applySupabaseHeaders(&request, config: config)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         return request
+    }
+
+    private static func applySupabaseHeaders(_ request: inout URLRequest, config: SupabaseAppConfig) {
+        request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        request.setValue(clientInfoHeaderValue, forHTTPHeaderField: "x-client-info")
     }
 
     private func uploadVoiceCaptureIfNeeded(
@@ -282,6 +308,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         var uploadRequest = URLRequest(url: try makeStorageObjectURL(bucket: voiceCapturesBucket, objectPath: objectPath))
         uploadRequest.httpMethod = "POST"
         uploadRequest.timeoutInterval = 30
+        Self.applySupabaseHeaders(&uploadRequest, config: config)
         uploadRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
         uploadRequest.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         uploadRequest.setValue(contentType(for: fileURL), forHTTPHeaderField: "Content-Type")
@@ -417,9 +444,14 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
             categories: categories,
             trips: trips,
             paymentMethods: paymentMethods,
+            deletedCategoryIDs: [],
+            deletedTripIDs: [],
+            deletedPaymentMethodIDs: [],
             activeTripID: activeTripID,
             defaultCurrencyCode: profile?.defaultCurrency,
-            dailyVoiceLimit: profile?.dailyVoiceLimit
+            parsingLanguage: profile?.parsingLanguage,
+            dailyVoiceLimit: profile?.dailyVoiceLimit,
+            profileUpdatedAt: profile?.updatedAt
         )
     }
 
@@ -428,7 +460,7 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         let decoder = makeSupabaseDecoder()
         var request = makeJSONRequest(
             url: try makeRestURL(path: "profiles", queryItems: [
-                URLQueryItem(name: "select", value: "id,default_currency,daily_voice_limit"),
+                URLQueryItem(name: "select", value: "id,default_currency,parsing_language,daily_voice_limit,updated_at"),
                 URLQueryItem(name: "id", value: "eq.\(userID)"),
                 URLQueryItem(name: "limit", value: "1"),
             ]),
@@ -538,13 +570,12 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
 
     private func syncCategories(
         _ local: [CategoryDefinition],
-        remote: [CategoryDefinition],
+        deletedIDs: [UUID],
         accessToken: String
     ) async throws {
         guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
-        let localIDs = Set(local.map(\.id))
-        let remoteCustomIDs = Set(remote.filter { !$0.isDefault }.map(\.id))
-        let deleteIDs = remoteCustomIDs.subtracting(localIDs)
+        let localCustomIDs = Set(local.filter { !$0.isDefault }.map(\.id))
+        let deleteIDs = Set(deletedIDs).subtracting(localCustomIDs)
         if !deleteIDs.isEmpty {
             var deleteReq = makeJSONRequest(
                 url: try makeRestURL(path: "categories", queryItems: [
@@ -597,11 +628,10 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         try validateREST(response: response, data: data)
     }
 
-    private func syncTrips(_ local: [TripRecord], remote: [TripRecord], accessToken: String) async throws {
+    private func syncTrips(_ local: [TripRecord], deletedIDs: [UUID], accessToken: String) async throws {
         guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let localIDs = Set(local.map(\.id))
-        let remoteIDs = Set(remote.map(\.id))
-        let deleteIDs = remoteIDs.subtracting(localIDs)
+        let deleteIDs = Set(deletedIDs).subtracting(localIDs)
         if !deleteIDs.isEmpty {
             var deleteReq = makeJSONRequest(
                 url: try makeRestURL(path: "trips", queryItems: [URLQueryItem(name: "id", value: "in.(\(deleteIDs.map(\.uuidString).joined(separator: ",")))")]),
@@ -626,13 +656,12 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
 
     private func syncPaymentMethods(
         _ local: [PaymentMethod],
-        remote: [PaymentMethod],
+        deletedIDs: [UUID],
         accessToken: String
     ) async throws {
         guard let userID = jwtSubject(from: accessToken) else { throw ExpenseAPIError.unauthorized("Access token is missing user subject.") }
         let localIDs = Set(local.map(\.id))
-        let remoteIDs = Set(remote.map(\.id))
-        let deleteIDs = remoteIDs.subtracting(localIDs)
+        let deleteIDs = Set(deletedIDs).subtracting(localIDs)
         if !deleteIDs.isEmpty {
             var deleteReq = makeJSONRequest(
                 url: try makeRestURL(path: "payment_methods", queryItems: [URLQueryItem(name: "id", value: "in.(\(deleteIDs.map(\.uuidString).joined(separator: ",")))")]),
@@ -683,6 +712,9 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         let currency = (snapshot.defaultCurrencyCode ?? "USD")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
+        let parsingLanguage = snapshot.parsingLanguage?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         let dailyVoiceLimit = snapshot.dailyVoiceLimit
 
         var upsertReq = makeJSONRequest(
@@ -691,7 +723,12 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         )
         upsertReq.httpMethod = "POST"
         upsertReq.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
-        upsertReq.httpBody = try JSONEncoder().encode([RESTProfileUpsert(id: userID, defaultCurrency: currency, dailyVoiceLimit: dailyVoiceLimit)])
+        upsertReq.httpBody = try JSONEncoder().encode([RESTProfileUpsert(
+            id: userID,
+            defaultCurrency: currency,
+            parsingLanguage: parsingLanguage,
+            dailyVoiceLimit: dailyVoiceLimit
+        )])
         let (data, response) = try await session.data(for: upsertReq)
         try validateREST(response: response, data: data)
     }
@@ -700,6 +737,10 @@ struct SupabaseFunctionExpenseAPIClient: ExpenseAPIClientProtocol {
         guard let http = response as? HTTPURLResponse else { throw ExpenseAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
+            #if DEBUG
+            let endpoint = http.url?.path ?? "<unknown>"
+            logNetwork("REST non-2xx", details: ["status": "\(http.statusCode)", "endpoint": endpoint])
+            #endif
             if http.statusCode == 401 || http.statusCode == 403 {
                 logNetwork("REST unauthorized", details: [
                     "status": "\(http.statusCode)",
@@ -1071,23 +1112,29 @@ private struct RESTCategory: Decodable {
 private struct RESTProfile: Decodable {
     let id: String
     let defaultCurrency: String?
+    let parsingLanguage: String?
     let dailyVoiceLimit: Int?
+    let updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id
         case defaultCurrency = "default_currency"
+        case parsingLanguage = "parsing_language"
         case dailyVoiceLimit = "daily_voice_limit"
+        case updatedAt = "updated_at"
     }
 }
 
 private struct RESTProfileUpsert: Encodable {
     let id: String
     let defaultCurrency: String
+    let parsingLanguage: String?
     let dailyVoiceLimit: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
         case defaultCurrency = "default_currency"
+        case parsingLanguage = "parsing_language"
         case dailyVoiceLimit = "daily_voice_limit"
     }
 }

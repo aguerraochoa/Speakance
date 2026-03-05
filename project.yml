@@ -5,12 +5,15 @@ options:
     iOS: "17.0"
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.example.speakance
+    PRODUCT_BUNDLE_IDENTIFIER: com.andresguerra.speakance
     SWIFT_VERSION: 5.9
 targets:
   Speakance:
     type: application
     platform: iOS
+    configFiles:
+      Debug: Config/AppConfig.xcconfig
+      Release: Config/AppConfig.xcconfig
     sources:
       - path: Sources
       - path: Assets.xcassets
@@ -20,6 +23,7 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_TEAM: 5LCHUR9CDA
         INFOPLIST_KEY_CFBundleDisplayName: Speakance
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIRequiredDeviceCapabilities:
@@ -30,8 +34,10 @@ targets:
     info:
       path: Info.plist
       properties:
-        SUPABASE_URL: https://pyramncggeecifntwlop.supabase.co
-        SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5cmFtbmNnZ2VlY2lmbnR3bG9wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4MDYzNTAsImV4cCI6MjA4NzM4MjM1MH0.Zd185VRjDEJUYD1CltQywVZKp0hMVL5sQ0O57aJuCXY
+        SUPABASE_URL: $(SUPABASE_URL)
+        SUPABASE_ANON_KEY: $(SUPABASE_ANON_KEY)
+        WEB_AUTH_BASE_HOST: $(WEB_AUTH_BASE_HOST)
+        WEB_AUTH_BASE_URL: $(WEB_AUTH_BASE_URL)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

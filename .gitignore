@@ -12,3 +12,4 @@ supabase/.branches/
 web/node_modules/
 web/.next/
 web/.vercel/
+Config/Local.xcconfig

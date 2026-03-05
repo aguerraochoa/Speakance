@@ -4,6 +4,7 @@ struct FeedView: View {
     @EnvironmentObject private var store: AppStore
     @State private var selectedTripFilter: SavedTripFilter = .all
     @State private var selectedCardFilter: SavedCardFilter = .all
+    @State private var selectedCurrencyFilter: SavedCurrencyFilter = .all
     @State private var selectedMonthFilter: SavedMonthFilter = .currentMonth
     @State private var savedLayout: SavedExpenseLayout = .cards
     @State private var showingRecentlyDeletedSheet = false
@@ -72,38 +73,10 @@ struct FeedView: View {
                             .foregroundStyle(AppTheme.muted)
                     }
                     Spacer()
-                    VStack(alignment: .trailing, spacing: 8) {
-                        StatusPill(
-                            text: store.isSyncingQueue ? "Syncing" : (failedQueueCount > 0 ? "Needs Attention" : "Up to date"),
-                            color: store.isSyncingQueue ? AppTheme.warning : (failedQueueCount > 0 ? AppTheme.error : AppTheme.success)
-                        )
-                        Button {
-                            showingRecentlyDeletedSheet = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(AppTheme.ink)
-                                    .frame(width: 30, height: 30)
-                                    .background(AppTheme.cardStrong, in: Circle())
-                                    .overlay(
-                                        Circle()
-                                            .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
-                                    )
-                                if !store.recentlyDeletedExpenses.isEmpty {
-                                    Text("\(store.recentlyDeletedExpenses.count)")
-                                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(AppTheme.error, in: Capsule())
-                                        .offset(x: 8, y: -8)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open Recently Deleted")
-                    }
+                    StatusPill(
+                        text: store.isSyncingQueue ? "Syncing" : (failedQueueCount > 0 ? "Needs Attention" : "Up to date"),
+                        color: store.isSyncingQueue ? AppTheme.warning : (failedQueueCount > 0 ? AppTheme.error : AppTheme.success)
+                    )
                 }
 
                 HStack(spacing: 10) {
@@ -116,6 +89,24 @@ struct FeedView: View {
                 }
             }
         }
+    }
+
+    private var recentlyDeletedButton: some View {
+        Button {
+            showingRecentlyDeletedSheet = true
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(AppTheme.ink)
+                .frame(width: 30, height: 30)
+                .background(AppTheme.cardStrong, in: Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open Recently Deleted")
     }
 
     private var savedFiltersBar: some View {
@@ -139,6 +130,16 @@ struct FeedView: View {
                     }
                 } label: {
                     filterChip(title: "Trip", value: selectedTripFilterTitle)
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    Button("All Currencies") { selectedCurrencyFilter = .all }
+                    ForEach(availableCurrencyFilters, id: \.self) { currency in
+                        Button(currency) { selectedCurrencyFilter = .currency(currency) }
+                    }
+                } label: {
+                    filterChip(title: "Currency", value: selectedCurrencyFilterTitle)
                 }
                 .buttonStyle(.plain)
 
@@ -231,12 +232,26 @@ struct FeedView: View {
             SectionHeader(
                 title: "Saved Expenses",
                 subtitle: savedLayout == .cards ? "Tap any expense to edit" : "Compact list view",
-                trailing: "\(filteredExpenses.count)"
+                trailing: {
+                    HStack(spacing: 10) {
+                        Text("\(filteredExpenses.count)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.muted)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(AppTheme.cardStrong, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                            )
+                        recentlyDeletedButton
+                    }
+                }
             )
 
             if filteredExpenses.isEmpty {
                 SpeakCard(padding: 16, cornerRadius: 20) {
-                    Text("No saved expenses match the current card/month filters.")
+                    Text("No saved expenses match the current card/month/currency filters.")
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(AppTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -455,7 +470,7 @@ struct FeedView: View {
         case "Transport": return "car.fill"
         case "Entertainment": return "sparkles.tv"
         case "Shopping": return "bag.fill"
-        case "Bills": return "bolt.fill"
+        case "Bills", "Utilities": return "bolt.fill"
         default: return "circle.grid.2x2.fill"
         }
     }
@@ -518,7 +533,10 @@ struct FeedView: View {
 
     private var filteredSavedExpenses: [ExpenseRecord] {
         store.expenses.filter { expense in
-            matchesTripFilter(expense) && matchesCardFilter(expense) && matchesMonthFilter(expense)
+            matchesTripFilter(expense)
+            && matchesCardFilter(expense)
+            && matchesMonthFilter(expense)
+            && matchesCurrencyFilter(expense)
         }
     }
 
@@ -562,6 +580,16 @@ struct FeedView: View {
         }
     }
 
+    private func matchesCurrencyFilter(_ expense: ExpenseRecord) -> Bool {
+        switch selectedCurrencyFilter {
+        case .all:
+            return true
+        case let .currency(code):
+            let normalized = expense.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            return (normalized.isEmpty ? store.defaultCurrencyCode : normalized) == code
+        }
+    }
+
     private func matchesMonthFilter(_ expense: ExpenseRecord) -> Bool {
         switch selectedMonthFilter {
         case .all:
@@ -580,6 +608,23 @@ struct FeedView: View {
             return .month(year: year, month: month)
         })
         return unique.sorted(by: { $0.sortKey > $1.sortKey })
+    }
+
+    private var availableCurrencyFilters: [String] {
+        let normalized = store.expenses.compactMap { expense -> String? in
+            let currency = expense.currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            return currency.isEmpty ? nil : currency
+        }
+        return Array(Set(normalized)).sorted()
+    }
+
+    private var selectedCurrencyFilterTitle: String {
+        switch selectedCurrencyFilter {
+        case .all:
+            return "All Currencies"
+        case let .currency(code):
+            return code
+        }
     }
 
     private var selectedCardFilterTitle: String {
@@ -755,6 +800,11 @@ private enum SavedCardFilter: Hashable {
     case all
     case unassigned
     case method(UUID)
+}
+
+private enum SavedCurrencyFilter: Hashable {
+    case all
+    case currency(String)
 }
 
 private enum SavedTripFilter: Hashable {

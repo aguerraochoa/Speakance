@@ -17,23 +17,32 @@ struct SettingsView: View {
     @State private var isImportingBackup = false
     @State private var backupActionMessage: String?
     @State private var showingDeleteAccountConfirmation = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case tripName
+        case paymentMethodName
+        case paymentMethodAliases
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                headerCard
-                tutorialCard
-                accountCard
-                preferencesCard
-                categoriesCard
-                tripsCard
-                paymentMethodsCard
-                syncCard
-                dataCard
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    headerCard
+                    tutorialCard
+                    accountCard
+                    preferencesCard
+                    categoriesCard
+                    tripsCard
+                    paymentMethodsCard
+                    syncCard
+                    dataCard
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, max(10, proxy.safeAreaInsets.top + 8))
+                .padding(.bottom, 28)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 28)
         }
         .background(AppCanvasBackground())
         .navigationBarTitleDisplayMode(.inline)
@@ -398,9 +407,11 @@ struct SettingsView: View {
 
                 TextField("Trip name", text: $newTripName)
                     .modernField()
+                    .focused($focusedField, equals: .tripName)
 
                 HStack(spacing: 10) {
                     Button {
+                        focusedField = nil
                         store.addTrip(name: newTripName, setActive: true)
                         newTripName = ""
                     } label: {
@@ -453,11 +464,18 @@ struct SettingsView: View {
 
                 TextField("Name (e.g. AMEX Gold)", text: $newPaymentMethodName)
                     .modernField()
+                    .focused($focusedField, equals: .paymentMethodName)
                 TextField("Aliases (comma-separated, e.g. amex, gold)", text: $newPaymentMethodAliases)
                     .modernField()
+                    .focused($focusedField, equals: .paymentMethodAliases)
 
                 Button {
-                    store.addPaymentMethod(name: newPaymentMethodName, aliases: [newPaymentMethodAliases])
+                    focusedField = nil
+                    let aliases = newPaymentMethodAliases
+                        .split(separator: ",")
+                        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    store.addPaymentMethod(name: newPaymentMethodName, aliases: aliases)
                     newPaymentMethodName = ""
                     newPaymentMethodAliases = ""
                 } label: {
@@ -522,8 +540,17 @@ struct SettingsView: View {
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(AppTheme.faintText)
                 }
+                if let metadataSyncedAt = store.lastMetadataSyncSuccessAt {
+                    Text("Last metadata sync: \(metadataSyncedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                } else if let metadataAttemptedAt = store.lastMetadataSyncAttemptAt {
+                    Text("Last metadata sync attempt: \(metadataAttemptedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                }
 
-                if let operationalError = store.lastOperationalErrorMessage {
+                if let operationalError = syncCardOperationalErrorMessage {
                     Text(operationalError)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(AppTheme.error)
@@ -622,6 +649,15 @@ struct SettingsView: View {
     private func methodAliasSummary(_ method: PaymentMethod) -> String {
         let summary = method.aliases.prefix(3).joined(separator: " • ")
         return summary.isEmpty ? "No aliases" : summary
+    }
+
+    private var syncCardOperationalErrorMessage: String? {
+        guard let message = store.lastOperationalErrorMessage else { return nil }
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.contains("metadata sync failed") {
+            return nil
+        }
+        return message
     }
 
     private var exportDateStamp: String {

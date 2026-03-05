@@ -41,7 +41,7 @@ export type ParseExpenseResponse = {
     merchant: string | null;
     expense_date: string;
     source: ExpenseSource;
-    parse_status: "auto" | "edited" | "failed";
+    parse_status: "auto" | "edited" | "failed" | "needs_review";
     trip_id?: string | null;
     trip_name?: string | null;
     payment_method_id?: string | null;

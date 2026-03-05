@@ -125,7 +125,30 @@ struct StatusPill: View {
 struct SectionHeader: View {
     let title: String
     var subtitle: String? = nil
-    var trailing: String? = nil
+    private let trailingText: String?
+    private let trailingContent: AnyView?
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        trailing: String? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailingText = trailing
+        self.trailingContent = nil
+    }
+
+    init<Content: View>(
+        title: String,
+        subtitle: String? = nil,
+        @ViewBuilder trailing: @escaping () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailingText = nil
+        self.trailingContent = AnyView(trailing())
+    }
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -140,22 +163,27 @@ struct SectionHeader: View {
                 }
             }
             Spacer()
-            if let trailing {
-                Text(trailing)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.muted)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(AppTheme.cardStrong, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
-                    )
+            if let trailingContent {
+                trailingContent
+            } else if let trailingText {
+                trailingTextStyle(trailingText)
             }
         }
     }
-}
 
+    private func trailingTextStyle(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(AppTheme.muted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(AppTheme.cardStrong, in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+            )
+    }
+}
 struct MetricChip: View {
     let title: String
     let value: String

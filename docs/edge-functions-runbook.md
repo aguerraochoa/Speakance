@@ -16,11 +16,15 @@ Both functions perform explicit in-function auth validation against Supabase Aut
 Run from repo root:
 
 ```bash
+export SPEAKANCE_SUPABASE_PROJECT_REF=<your-project-ref>
+```
+
+```bash
 cd /Users/andresguerra/Documents/Non-Work/Apps/Speakance
 supabase login
-supabase functions deploy parse-expense --project-ref pyramncggeecifntwlop --use-api --no-verify-jwt
-supabase functions deploy delete-account --project-ref pyramncggeecifntwlop --use-api --no-verify-jwt
-supabase functions list --project-ref pyramncggeecifntwlop
+supabase functions deploy parse-expense --project-ref "$SPEAKANCE_SUPABASE_PROJECT_REF" --use-api --no-verify-jwt
+supabase functions deploy delete-account --project-ref "$SPEAKANCE_SUPABASE_PROJECT_REF" --use-api --no-verify-jwt
+supabase functions list --project-ref "$SPEAKANCE_SUPABASE_PROJECT_REF"
 ```
 
 ## Verification
@@ -35,9 +39,9 @@ After deploy:
 ## If You See `Invalid JWT` Again
 
 1. Re-deploy `parse-expense` and `delete-account` with `--no-verify-jwt`.
-2. Confirm project ref is `pyramncggeecifntwlop`.
+2. Confirm project ref is `$SPEAKANCE_SUPABASE_PROJECT_REF`.
 3. Check app token issuer in logs:
-   - `iss=https://pyramncggeecifntwlop.supabase.co/auth/v1`
+   - `iss=https://$SPEAKANCE_SUPABASE_PROJECT_REF.supabase.co/auth/v1`
 
 ## Notes
 

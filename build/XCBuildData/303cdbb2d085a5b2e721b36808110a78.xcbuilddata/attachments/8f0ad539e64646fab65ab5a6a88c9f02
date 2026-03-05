@@ -1,0 +1,228 @@
+{
+  "" : {
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/Speakance-master.dia",
+    "emit-module-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/Speakance-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/Speakance-master-emit-module.dia",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/Speakance-master.swiftdeps"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/App/SpeakanceApp.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SpeakanceApp~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Auth/AuthStore.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthStore~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Config/AppConfig.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppConfig~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/DesignSystem/AppTheme.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppTheme~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/DesignSystem/VisualComponents.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/VisualComponents~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Models/ExpenseModels.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseModels~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/AppStore.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AppStore~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/AudioCaptureService.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AudioCaptureService~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/MockAPIClient.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/MockAPIClient~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/NetworkMonitor.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/NetworkMonitor~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/QueueStore.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/QueueStore~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/RemoteExpenseAPIClient.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RemoteExpenseAPIClient~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Core/Services/SyncEngine.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SyncEngine~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Features/Auth/AuthGateView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/AuthGateView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Features/Capture/CaptureView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/CaptureView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Features/Feed/FeedView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/FeedView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Features/Insights/InsightsView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/InsightsView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Features/Review/ExpenseReviewView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ExpenseReviewView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Features/Settings/SettingsView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/SettingsView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Root/ContentView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Sources/Root/RootTabView.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/RootTabView~partial.swiftmodule"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/Speakance.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

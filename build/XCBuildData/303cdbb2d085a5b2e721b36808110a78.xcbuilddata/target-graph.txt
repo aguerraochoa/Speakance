@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'SpeakanceTests' in project 'Speakance'
+➜ Explicit dependency on target 'Speakance' in project 'Speakance'
+Target 'Speakance' in project 'Speakance' (no dependencies)

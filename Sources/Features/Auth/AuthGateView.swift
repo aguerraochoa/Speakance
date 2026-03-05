@@ -23,9 +23,6 @@ struct AuthGateView: View {
             GeometryReader { proxy in
                 ZStack {
                     authBackground
-                        .onTapGesture {
-                            focusedField = nil
-                        }
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
@@ -105,6 +102,9 @@ struct AuthGateView: View {
                         .submitLabel(.next)
                         .onSubmit { focusedField = .password }
                 }
+                .onTapGesture {
+                    focusedField = .email
+                }
 
                 fieldContainer {
                     HStack(spacing: 10) {
@@ -132,6 +132,9 @@ struct AuthGateView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+                .onTapGesture {
+                    focusedField = .password
                 }
             }
             .padding(14)

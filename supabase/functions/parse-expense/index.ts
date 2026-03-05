@@ -17,6 +17,7 @@ const AUTO_SAVE_CONFIDENCE_THRESHOLD = 0.9;
 const OPENAI_MODEL = "gpt-4o-mini";
 const OPENAI_TRANSCRIBE_MODEL = "whisper-1";
 const VOICE_CAPTURES_BUCKET = "voice-captures";
+const PRIMARY_AUTH_STRATEGY = "adminClient.auth.getUser";
 
 const DEFAULT_CATEGORY_NAMES = [
   "Food",
@@ -34,6 +35,7 @@ const CATEGORY_SET = new Set<string>(DEFAULT_CATEGORY_NAMES);
 const DEFAULT_CATEGORY_KEYWORDS: Record<string, string[]> = {
   Food: [
     "food", "meal", "meals", "breakfast", "lunch", "dinner", "brunch",
+    "comida", "comidas", "almuerzo", "desayuno", "cena",
     "snack", "snacks", "restaurant", "restaurante", "cafe", "cafeteria", "bakery",
     "coffee", "latte", "espresso", "tea", "juice", "smoothie", "water",
     "soda", "drink", "drinks", "beer", "wine", "pizza", "burger",
@@ -113,6 +115,7 @@ type CategoryRow = {
   id: string;
   name: string;
   is_default: boolean;
+  user_id: string | null;
 };
 
 type CategoryHintRow = {
@@ -151,6 +154,8 @@ type DeterministicParse = {
   confidence: number;
   metadata: {
     hasAmount: boolean;
+    amountToken: string | null;
+    amountScore: number;
     hasExplicitCurrency: boolean;
     usedDefaultCurrency: boolean;
     hasExplicitCategory: boolean;
@@ -203,12 +208,13 @@ Deno.serve(async (req) => {
       adminClient,
       bearerToken,
     });
+    const authAttempts = summarizeAuthAttempts(authResolution.attempts);
     if (!authResolution.user) {
       console.error(
         "[parse-expense] auth validation failed",
         {
           reason: authResolution.error ?? "Unauthorized",
-          token: summarizeJwtForLogs(bearerToken),
+          attempts: authAttempts,
         },
       );
       return json(
@@ -216,14 +222,16 @@ Deno.serve(async (req) => {
         401,
       );
     }
-    console.log(
-      "[parse-expense] auth validation succeeded",
-      {
-        strategy: authResolution.strategy,
-        userID: authResolution.user.id,
-        token: summarizeJwtForLogs(bearerToken),
-      },
-    );
+    const authLog = {
+      strategy: authResolution.strategy,
+      attempts: authAttempts,
+      userTail: authResolution.user.id.slice(-8),
+    };
+    if (authResolution.strategy !== PRIMARY_AUTH_STRATEGY) {
+      console.warn("[parse-expense] auth fallback strategy used", authLog);
+    } else {
+      console.log("[parse-expense] auth validation succeeded", authLog);
+    }
     const user = authResolution.user;
     cleanupUserID = user.id;
 
@@ -243,13 +251,15 @@ Deno.serve(async (req) => {
       loadPaymentMethodContext(adminClient, user.id),
     ]);
     const dailyVoiceLimit = profile?.daily_voice_limit ?? DEFAULT_DAILY_VOICE_LIMIT;
-    const tz = body.timezone ?? profile?.timezone ?? "UTC";
+    const profileTimezone = resolveTimeZone(profile?.timezone);
+    const requestTimezone = resolveTimeZone(body.timezone);
+    const quotaTimeZone = profileTimezone ?? "UTC";
+    const tz = requestTimezone ?? profileTimezone ?? "UTC";
 
     const dailyVoiceUsed = await countDailyVoiceUsage(
       adminClient,
       user.id,
-      body.captured_at_device,
-      tz,
+      quotaTimeZone,
     );
     if (body.source === "voice" && dailyVoiceUsed >= dailyVoiceLimit) {
       return json(
@@ -293,28 +303,20 @@ Deno.serve(async (req) => {
       categoryContext: parserCategoryContext,
     });
 
+    const aiOutcome = await parseExpenseWithOpenAI({
+      apiKey: openAiApiKey,
+      rawText,
+      capturedAtDevice: body.captured_at_device,
+      timezone: tz,
+      currencyHint: body.currency_hint,
+      languageHint: body.language_hint,
+      defaultCurrency: profile?.default_currency ?? undefined,
+      categoryContext: parserCategoryContext,
+    });
+
     let outcome: ParseOutcome;
-    if (shouldUseAiFallback(deterministic)) {
-      const aiOutcome = await parseExpenseWithOpenAI({
-        apiKey: openAiApiKey,
-        rawText,
-        capturedAtDevice: body.captured_at_device,
-        timezone: tz,
-        currencyHint: body.currency_hint,
-        languageHint: body.language_hint,
-        defaultCurrency: profile?.default_currency ?? undefined,
-        categoryContext: parserCategoryContext,
-      });
-      if (aiOutcome) {
-        outcome = aiOutcome;
-      } else {
-        outcome = {
-          parsed: deterministic.parsed,
-          confidence: deterministic.confidence,
-          provider: "deterministic",
-          model: "rules-v1",
-        };
-      }
+    if (aiOutcome) {
+      outcome = aiOutcome;
     } else {
       outcome = {
         parsed: deterministic.parsed,
@@ -323,6 +325,12 @@ Deno.serve(async (req) => {
         model: "rules-v1",
       };
     }
+    outcome.parsed = applyStrictPostValidation({
+      parsed: outcome.parsed,
+      rawText,
+      languageHint: body.language_hint,
+      paymentMethodContext: parserPaymentMethodContext,
+    });
 
     const needsReview = outcome.confidence < AUTO_SAVE_CONFIDENCE_THRESHOLD || body.allow_auto_save === false;
 
@@ -330,17 +338,22 @@ Deno.serve(async (req) => {
     const categoryRef = await validateCategoryRef(adminClient, user.id, body.category_id);
     const finalCategoryId = categoryRef?.id ?? parsedCategoryId;
     const finalCategoryName = categoryRef?.name ?? outcome.parsed.category;
-    const tripRef = await validateOwnedRef(adminClient, "trips", user.id, body.trip_id);
+    let tripRef = await validateOwnedTripRef(adminClient, user.id, body.trip_id);
+    if (!tripRef) {
+        tripRef = await resolveTripRefFromNameIfUnique(adminClient, user.id, body.trip_name);
+    }
+    const finalTripName = tripRef?.name ?? (body.trip_name?.trim() || null);
     const detectedPaymentMethod = detectPaymentMethodReference(rawText, parserPaymentMethodContext);
-    const paymentMethodRef = await validateOwnedRef(
+    let paymentMethodRef = await validateOwnedPaymentMethodRef(
       adminClient,
-      "payment_methods",
       user.id,
       body.payment_method_id ?? detectedPaymentMethod?.id,
     );
-    const finalPaymentMethodName = paymentMethodRef
-      ? (body.payment_method_name ?? detectedPaymentMethod?.name ?? null)
-      : null;
+    if (!paymentMethodRef) {
+        paymentMethodRef = await resolvePaymentMethodRefFromNameIfUnique(adminClient, user.id, body.payment_method_name);
+    }
+    const finalPaymentMethodName = paymentMethodRef?.name ?? (body.payment_method_name?.trim() || null);
+    const parseStatus = needsReview ? "needs_review" : "auto";
 
     const { data: savedExpense, error: upsertError } = await adminClient
       .from("expenses")
@@ -354,15 +367,15 @@ Deno.serve(async (req) => {
           category_id: finalCategoryId,
           description: outcome.parsed.description,
           merchant: outcome.parsed.merchant,
-          trip_id: tripRef,
-          trip_name: body.trip_name ?? null,
-          payment_method_id: paymentMethodRef,
+          trip_id: tripRef?.id ?? null,
+          trip_name: finalTripName,
+          payment_method_id: paymentMethodRef?.id ?? null,
           payment_method_name: finalPaymentMethodName,
           expense_date: outcome.parsed.expense_date,
           captured_at_device: body.captured_at_device,
           synced_at: new Date().toISOString(),
           source: body.source,
-          parse_status: "auto",
+          parse_status: parseStatus,
           parse_confidence: outcome.confidence,
           raw_text: rawText,
           audio_duration_seconds: body.audio_duration_seconds ?? null,
@@ -379,14 +392,14 @@ Deno.serve(async (req) => {
       );
     }
 
-    await adminClient.from("ai_usage_events").insert({
-      user_id: user.id,
-      client_expense_id: body.client_expense_id,
-      event_type: body.source === "voice" ? "voice_parse" : "text_parse",
+    const didCountUsageEvent = await recordUsageEventIfNeeded({
+      supabase: adminClient,
+      userID: user.id,
+      clientExpenseID: body.client_expense_id,
+      source: body.source,
       provider: outcome.provider,
       model: outcome.model,
-      audio_seconds: body.audio_duration_seconds ?? null,
-      estimated_cost_usd: outcome.provider === "openai" ? null : 0,
+      audioDurationSeconds: body.audio_duration_seconds ?? null,
     });
 
     const response: ParseExpenseResponse = {
@@ -398,7 +411,7 @@ Deno.serve(async (req) => {
         needs_review: needsReview,
       },
       usage: {
-        daily_voice_used: body.source === "voice" ? dailyVoiceUsed + 1 : dailyVoiceUsed,
+        daily_voice_used: body.source === "voice" ? dailyVoiceUsed + (didCountUsageEvent ? 1 : 0) : dailyVoiceUsed,
         daily_voice_limit: dailyVoiceLimit,
       },
     };
@@ -413,6 +426,43 @@ Deno.serve(async (req) => {
     }
   }
 });
+
+async function recordUsageEventIfNeeded(opts: {
+  supabase: ReturnType<typeof createClient>;
+  userID: string;
+  clientExpenseID: string;
+  source: ParseExpenseRequest["source"];
+  provider: string;
+  model: string;
+  audioDurationSeconds: number | null;
+}): Promise<boolean> {
+  const eventType = opts.source === "voice" ? "voice_parse" : "text_parse";
+  const { error } = await opts.supabase.from("ai_usage_events").insert({
+    user_id: opts.userID,
+    client_expense_id: opts.clientExpenseID,
+    event_type: eventType,
+    provider: opts.provider,
+    model: opts.model,
+    audio_seconds: opts.audioDurationSeconds,
+    estimated_cost_usd: opts.provider === "openai" ? null : 0,
+  });
+  if (!error) return true;
+
+  const duplicate = error.code === "23505"
+    || (error.message?.toLowerCase().includes("duplicate key") ?? false);
+  if (duplicate) {
+    return false;
+  }
+
+  console.error("[parse-expense] failed to store ai usage event", {
+    userID: opts.userID,
+    clientExpenseID: opts.clientExpenseID,
+    eventType,
+    code: error.code,
+    message: error.message,
+  });
+  return false;
+}
 
 async function resolveInputText(opts: {
   body: ParseExpenseRequest;
@@ -540,7 +590,15 @@ function validateRequest(body: ParseExpenseRequest): string | null {
   if (!body.source) return "source is required";
   if (!body.captured_at_device) return "captured_at_device is required";
   if (body.source === "voice") {
-    if (!body.audio_duration_seconds) return "audio_duration_seconds is required for voice";
+    if (typeof body.audio_duration_seconds !== "number" || !Number.isFinite(body.audio_duration_seconds)) {
+      return "audio_duration_seconds is required for voice";
+    }
+    if (!Number.isInteger(body.audio_duration_seconds)) {
+      return "audio_duration_seconds must be an integer";
+    }
+    if (body.audio_duration_seconds < 1) {
+      return "audio_duration_seconds must be at least 1s";
+    }
     if (body.audio_duration_seconds > MAX_VOICE_SECONDS) {
       return `audio_duration_seconds exceeds ${MAX_VOICE_SECONDS}s`;
     }
@@ -572,12 +630,23 @@ async function loadParserCategoryContext(
   supabase: ReturnType<typeof createClient>,
   userId: string,
 ): Promise<ParserCategoryContext> {
-  const { data: categoriesData } = await supabase
-    .from("categories")
-    .select("id, name, is_default")
-    .or(`user_id.is.null,user_id.eq.${userId}`);
+  const [systemCategoriesResult, userCategoriesResult] = await Promise.all([
+    supabase
+      .from("categories")
+      .select("id, name, is_default, user_id")
+      .is("user_id", null),
+    supabase
+      .from("categories")
+      .select("id, name, is_default, user_id")
+      .eq("user_id", userId),
+  ]);
 
-  const categoryRows = ((categoriesData ?? []) as CategoryRow[]).filter((row) => !!row?.id && !!row?.name);
+  const categoryRowsByID = new Map<string, CategoryRow>();
+  for (const row of [...(systemCategoriesResult.data ?? []), ...(userCategoriesResult.data ?? [])] as CategoryRow[]) {
+    if (!row?.id || !row?.name) continue;
+    categoryRowsByID.set(row.id, row);
+  }
+  const categoryRows = Array.from(categoryRowsByID.values());
   const categoryIDs = categoryRows.map((row) => row.id);
 
   const { data: hintsData } = categoryIDs.length > 0
@@ -680,22 +749,84 @@ async function loadPaymentMethodContext(
   return { methodsById, aliasToMethodIDs };
 }
 
-async function validateOwnedRef(
+async function validateOwnedPaymentMethodRef(
   supabase: ReturnType<typeof createClient>,
-  table: "trips" | "payment_methods",
   userId: string,
   id: string | undefined,
-): Promise<string | null> {
+): Promise<{ id: string; name: string } | null> {
   if (!id) return null;
   const trimmed = id.trim();
   if (!trimmed) return null;
   const { data } = await supabase
-    .from(table)
-    .select("id")
+    .from("payment_methods")
+    .select("id, name")
     .eq("user_id", userId)
     .eq("id", trimmed)
     .maybeSingle();
-  return (data as { id?: string } | null)?.id ?? null;
+  const row = data as { id?: string; name?: string } | null;
+  if (!row?.id || !row?.name) return null;
+  return { id: row.id, name: row.name };
+}
+
+async function resolvePaymentMethodRefFromNameIfUnique(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  paymentMethodName: string | undefined,
+): Promise<{ id: string; name: string } | null> {
+  const trimmed = paymentMethodName?.trim();
+  if (!trimmed) return null;
+  const { data } = await supabase
+    .from("payment_methods")
+    .select("id, name")
+    .eq("user_id", userId)
+    .ilike("name", trimmed)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
+  const rows = (data ?? []) as Array<{ id?: string; name?: string }>;
+  if (rows.length !== 1) return null;
+  const row = rows[0];
+  if (!row?.id || !row?.name) return null;
+  return { id: row.id, name: row.name };
+}
+
+async function validateOwnedTripRef(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  id: string | undefined,
+): Promise<{ id: string; name: string } | null> {
+  if (!id) return null;
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  const { data } = await supabase
+    .from("trips")
+    .select("id, name")
+    .eq("user_id", userId)
+    .eq("id", trimmed)
+    .maybeSingle();
+  const row = data as { id?: string; name?: string } | null;
+  if (!row?.id || !row?.name) return null;
+  return { id: row.id, name: row.name };
+}
+
+async function resolveTripRefFromNameIfUnique(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  tripName: string | undefined,
+): Promise<{ id: string; name: string } | null> {
+  const trimmed = tripName?.trim();
+  if (!trimmed) return null;
+  const { data } = await supabase
+    .from("trips")
+    .select("id, name")
+    .eq("user_id", userId)
+    .ilike("name", trimmed)
+    .order("status", { ascending: false })
+    .order("created_at", { ascending: false });
+  const rows = (data ?? []) as Array<{ id?: string; name?: string }>;
+  if (rows.length !== 1) return null;
+  const row = rows[0];
+  if (!row?.id || !row?.name) return null;
+  return { id: row.id, name: row.name };
 }
 
 async function validateCategoryRef(
@@ -708,12 +839,13 @@ async function validateCategoryRef(
   if (!trimmed) return null;
   const { data } = await supabase
     .from("categories")
-    .select("id, name")
+    .select("id, name, user_id")
     .eq("id", trimmed)
-    .or(`user_id.is.null,user_id.eq.${userId}`)
     .maybeSingle();
-  const row = data as { id?: string; name?: string } | null;
+  const row = data as { id?: string; name?: string; user_id?: string | null } | null;
   if (!row?.id || !row?.name) return null;
+  const ownerID = row.user_id ?? null;
+  if (ownerID !== null && ownerID !== userId) return null;
   return { id: row.id, name: row.name };
 }
 
@@ -727,14 +859,13 @@ function resolveCategoryIDForParsedCategory(
 async function countDailyVoiceUsage(
   supabase: ReturnType<typeof createClient>,
   userId: string,
-  capturedAtDevice: string,
   timezone: string,
 ): Promise<number> {
-  const targetLocalDay = localDateKey(capturedAtDevice, timezone);
-  const anchor = new Date(capturedAtDevice);
-  if (Number.isNaN(anchor.getTime())) return 0;
-  const start = new Date(anchor.getTime() - 36 * 60 * 60 * 1000);
-  const end = new Date(anchor.getTime() + 36 * 60 * 60 * 1000);
+  // Enforce quota by server-observed day in the user's timezone (tamper-resistant).
+  const now = new Date();
+  const targetLocalDay = localDateKey(now.toISOString(), timezone);
+  const start = new Date(now.getTime() - 36 * 60 * 60 * 1000);
+  const end = new Date(now.getTime() + 36 * 60 * 60 * 1000);
 
   const { data } = await supabase
     .from("ai_usage_events")
@@ -754,6 +885,18 @@ function localDateKey(isoString: string, timeZone: string): string {
   const date = new Date(isoString);
   if (Number.isNaN(date.getTime())) return dateKeyInTimeZone(new Date(), timeZone);
   return dateKeyInTimeZone(date, timeZone);
+}
+
+function resolveTimeZone(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    // Throws for invalid or unsupported zone names.
+    new Intl.DateTimeFormat("en-US", { timeZone: trimmed }).format(new Date());
+    return trimmed;
+  } catch {
+    return null;
+  }
 }
 
 function dateKeyInTimeZone(date: Date, timeZone: string): string {
@@ -812,6 +955,109 @@ function detectPaymentMethodReference(
   return methodID ? (ctx.methodsById.get(methodID) ?? null) : null;
 }
 
+function parseLocalizedNumberToken(value: string): number | null {
+  let cleaned = value
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[’']/g, "");
+  if (!/\d/.test(cleaned)) return null;
+
+  const commaCount = (cleaned.match(/,/g) ?? []).length;
+  const dotCount = (cleaned.match(/\./g) ?? []).length;
+  let decimalSeparator: "," | "." | null = null;
+
+  if (commaCount > 0 && dotCount > 0) {
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    decimalSeparator = lastComma > lastDot ? "," : ".";
+  } else if (commaCount === 1) {
+    const separatorIndex = cleaned.lastIndexOf(",");
+    const suffixDigits = cleaned.length - separatorIndex - 1;
+    decimalSeparator = suffixDigits === 3 ? null : ",";
+  } else if (dotCount === 1) {
+    const separatorIndex = cleaned.lastIndexOf(".");
+    const suffixDigits = cleaned.length - separatorIndex - 1;
+    decimalSeparator = suffixDigits === 3 ? null : ".";
+  }
+
+  if (decimalSeparator) {
+    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+    cleaned = cleaned.split(thousandsSeparator).join("");
+    if (decimalSeparator === ",") {
+      cleaned = cleaned.replace(",", ".");
+    }
+  } else {
+    cleaned = cleaned.replace(/[.,]/g, "");
+  }
+
+  if (cleaned.endsWith(".")) cleaned += "0";
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+type AmountCandidate = {
+  token: string;
+  value: number;
+  score: number;
+  index: number;
+};
+
+function selectAmountCandidate(rawText: string): AmountCandidate | null {
+  const candidates = Array.from(
+    rawText.matchAll(/\d{1,3}(?:[.,\s'’]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?/g),
+  ).flatMap((match): AmountCandidate[] => {
+    const token = match[0];
+    const value = parseLocalizedNumberToken(token);
+    const index = match.index ?? -1;
+    if (value === null || index < 0) return [];
+    const score = scoreAmountCandidate(rawText, token, value, index);
+    return [{ token, value, score, index }];
+  });
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    if (a.value !== b.value) return b.value - a.value;
+    return b.token.length - a.token.length;
+  });
+  return candidates[0] ?? null;
+}
+
+function scoreAmountCandidate(rawText: string, token: string, value: number, index: number): number {
+  let score = 0;
+  if (/[.,]\d{1,2}$/.test(token)) score += 30;
+  if (/[.,\s'’]\d{3}/.test(token)) score += 15;
+  if (/[$€£¥]/.test(token)) score += 25;
+
+  const start = Math.max(0, index - 12);
+  const end = Math.min(rawText.length, index + token.length + 12);
+  const contextWindow = rawText.slice(start, end).toLowerCase();
+  if (/\b(usd|mxn|eur|gbp|jpy|cad|brl|peso|pesos|dollar|dollars|euro|euros)\b/.test(contextWindow)) {
+    score += 40;
+  }
+
+  const sanitized = token.replace(/[,\s'’.]/g, "");
+  if (sanitized.length === 4 && value >= 1900 && value <= 2100) {
+    score -= 90;
+  }
+  if (isLikelyDateNumber(rawText, index, token.length)) {
+    score -= 120;
+  }
+  if (value > 500_000) {
+    score -= 50;
+  }
+  return score;
+}
+
+function isLikelyDateNumber(text: string, index: number, length: number): boolean {
+  const start = Math.max(0, index - 8);
+  const end = Math.min(text.length, index + length + 8);
+  const snippet = text.slice(start, end);
+  return /\d{1,4}\s*[-/]\s*\d{1,2}\s*[-/]\s*\d{1,4}/.test(snippet)
+    || /\d{1,2}\s*[-/]\s*\d{1,2}/.test(snippet);
+}
+
 function parseExpenseDeterministically(
   rawText: string,
   opts: {
@@ -825,16 +1071,11 @@ function parseExpenseDeterministically(
   const lower = rawText.toLowerCase();
   const tokens = lower.match(/[a-zA-Z]+|\d+(?:[.,]\d+)?/g) ?? [];
 
-  // Prefer larger/more explicit amounts instead of accidentally capturing a small leading number.
-  const amountCandidates = Array.from(rawText.matchAll(/\d+(?:[.,]\d{1,2})?/g)).map((m) => m[0]);
-  const amountToken = amountCandidates.sort((a, b) => {
-    const aVal = Number(a.replace(",", "."));
-    const bVal = Number(b.replace(",", "."));
-    return bVal - aVal;
-  })[0] ?? null;
-  const amountMatch = amountToken ? { 1: amountToken } : null;
-  const amount = Number((amountMatch?.[1] ?? "0").replace(",", "."));
+  const amountCandidate = selectAmountCandidate(rawText);
+  const amountMatch = amountCandidate?.token ?? null;
+  const amount = amountCandidate?.value ?? 0;
   const hasAmount = Number.isFinite(amount) && amount > 0;
+  const amountScore = amountCandidate?.score ?? 0;
 
   let hasExplicitCurrency = false;
   let currency = (opts.currencyHint ?? opts.defaultCurrency ?? "USD").toUpperCase();
@@ -877,7 +1118,7 @@ function parseExpenseDeterministically(
 
   const expenseDate = inferExpenseDate(rawText, opts.capturedAtDevice, opts.timezone);
   const builtDescription = buildDescription(rawText, {
-    amountMatch: amountMatch?.[1] ?? null,
+    amountMatch,
     category,
     aliasToCategory: opts.categoryContext.aliasToCategory,
   });
@@ -915,24 +1156,14 @@ function parseExpenseDeterministically(
     confidence: clamp(confidence, 0.4, 0.99),
     metadata: {
       hasAmount,
+      amountToken: amountMatch,
+      amountScore,
       hasExplicitCurrency,
       usedDefaultCurrency,
       hasExplicitCategory,
       tokenCount: tokens.length,
     },
   };
-}
-
-function shouldUseAiFallback(deterministic: DeterministicParse): boolean {
-  const { confidence, metadata, parsed } = deterministic;
-  // Product behavior: if deterministic is not good enough to auto-save, let AI try first.
-  if (confidence < AUTO_SAVE_CONFIDENCE_THRESHOLD) return true;
-  if (!metadata.hasAmount) return true;
-  if (parsed.category === "Other" && !metadata.hasExplicitCategory) return true;
-  const desc = (parsed.description ?? "").trim().toLowerCase();
-  if (!desc || desc.length < 3) return true;
-  if (/^(on|at|in|for|with)$/i.test(desc)) return true;
-  return false;
 }
 
 async function parseExpenseWithOpenAI(opts: {
@@ -969,7 +1200,10 @@ async function parseExpenseWithOpenAI(opts: {
     `- expense_date: YYYY-MM-DD, default to ${fallbackDate} if not specified`,
     "- confidence: number 0 to 1",
     "- merchant can be null",
+    "- never use payment method/card words as merchant (e.g. card, tarjeta, Amex, Visa, Mastercard)",
+    "- merchant must be the business/place only; if unclear return null",
     "- description should be concise and useful (3-10 words when possible), remove filler words and rambling",
+    "- description should not include amounts or payment method phrases",
     `- language: keep description/merchant in the user's language${outputLanguageHint ? ` (preferred: ${outputLanguageHint})` : " when clear"}`,
     "- if the user mentions a place/restaurant/store, put it in merchant",
     "- good description example: 'Food with friends at Peter Piper Pizza'",
@@ -1186,6 +1420,40 @@ function refineParsedNarrative(opts: {
   };
 }
 
+function applyStrictPostValidation(opts: {
+  parsed: ParsedExpense;
+  rawText: string;
+  languageHint?: "en" | "es";
+  paymentMethodContext: ParserPaymentMethodContext;
+}): ParsedExpense {
+  const language = normalizeLanguageHint(opts.languageHint) ?? inferLanguageFromText(opts.rawText);
+  const paymentMethodTokens = buildPaymentMethodNoiseTokens(opts.paymentMethodContext);
+
+  const merchant = sanitizeMerchantStrict(opts.parsed.merchant, paymentMethodTokens);
+  const narrative = refineParsedNarrative({
+    rawText: opts.rawText,
+    category: opts.parsed.category,
+    description: opts.parsed.description ?? opts.rawText,
+    merchant,
+    languageHint: language,
+  });
+
+  const description = sanitizeDescriptionStrict({
+    description: narrative.description,
+    rawText: opts.rawText,
+    category: opts.parsed.category,
+    merchant,
+    language,
+    paymentMethodTokens,
+  });
+
+  return {
+    ...opts.parsed,
+    description,
+    merchant,
+  };
+}
+
 function composeSmartDescription(opts: {
   category: string;
   merchant: string | null;
@@ -1212,6 +1480,39 @@ function composeSmartDescription(opts: {
   return opts.fallback || opts.category;
 }
 
+function sanitizeDescriptionStrict(opts: {
+  description: string;
+  rawText: string;
+  category: string;
+  merchant: string | null;
+  language?: "en" | "es";
+  paymentMethodTokens: Set<string>;
+}): string {
+  const cleaned = opts.description.trim().replace(/\s{2,}/g, " ");
+  const lower = cleaned.toLowerCase();
+  const rawLower = opts.rawText.trim().toLowerCase();
+
+  const hasAmountNoise = /\d{1,3}(?:[.,\s'’]\d{3})*(?:[.,]\d{1,2})?/.test(cleaned)
+    || /\b(peso|pesos|mxn|usd|eur|gbp|jpy|cad|brl|dollar|dollars|euro|euros)\b/i.test(cleaned);
+  const hasPaymentNoise = containsAnyPhrase(lower, opts.paymentMethodTokens);
+  const hasVerbNoise = /\b(me gast[ée]|gast[ée]|gaste|pagu[ée]|pague|compr[ée]|compre|spent|paid|bought)\b/i.test(cleaned);
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  const looksLikeRaw = lower === rawLower || (rawLower.length > 18 && lower.includes(rawLower));
+  const tooShort = wordCount < 2;
+  const tooLong = wordCount > 12 || cleaned.length > 90;
+
+  if (!cleaned || tooShort || tooLong || hasAmountNoise || hasPaymentNoise || hasVerbNoise || looksLikeRaw) {
+    if (opts.merchant) {
+      return opts.language === "es"
+        ? `${opts.category} en ${opts.merchant}`
+        : `${opts.category} at ${opts.merchant}`;
+    }
+    return `${opts.category} expense`;
+  }
+
+  return cleaned.slice(0, 90).trim();
+}
+
 function compactDescriptionText(input: string): string {
   let text = input.trim();
   if (!text) return "";
@@ -1236,6 +1537,63 @@ function compactDescriptionText(input: string): string {
   if (!text) return "";
   if (/^(at|in|with|on|en|con|para|por)$/i.test(text)) return "";
   return capitalizeFirst(text);
+}
+
+function buildPaymentMethodNoiseTokens(ctx: ParserPaymentMethodContext): Set<string> {
+  const defaults = [
+    "card",
+    "tarjeta",
+    "amex",
+    "visa",
+    "mastercard",
+    "master card",
+    "debit",
+    "credito",
+    "crédito",
+    "credit",
+    "wallet",
+    "apple pay",
+    "cash",
+    "method",
+    "metodo",
+    "método",
+  ];
+  const out = new Set<string>(defaults.map((value) => value.toLowerCase()));
+  for (const alias of ctx.aliasToMethodIDs.keys()) {
+    const normalized = alias.trim().toLowerCase();
+    if (!normalized) continue;
+    out.add(normalized);
+  }
+  return out;
+}
+
+function sanitizeMerchantStrict(candidate: string | null | undefined, paymentMethodTokens: Set<string>): string | null {
+  const normalized = normalizeMerchantName(candidate);
+  if (!normalized) return null;
+  const lower = normalized.toLowerCase();
+
+  if (normalized.split(/\s+/).filter(Boolean).length > 4) return null;
+  if (/\d{1,3}(?:[.,\s'’]\d{3})*(?:[.,]\d{1,2})?/.test(normalized)) return null;
+  if (/\b(peso|pesos|mxn|usd|eur|gbp|jpy|cad|brl|dollar|dollars|euro|euros)\b/i.test(normalized)) return null;
+  if (/\b(me gast[ée]|gast[ée]|gaste|pagu[ée]|pague|compr[ée]|compre|spent|paid|bought)\b/i.test(normalized)) return null;
+  if (containsAnyPhrase(lower, paymentMethodTokens)) return null;
+
+  return normalized;
+}
+
+function containsAnyPhrase(value: string, phrases: Set<string>): boolean {
+  for (const phrase of phrases) {
+    if (!phrase) continue;
+    const isWordPhrase = /^[a-z0-9áéíóúüñ ]+$/i.test(phrase);
+    if (isWordPhrase) {
+      if (new RegExp(`\\b${escapeRegex(phrase)}\\b`, "i").test(value)) {
+        return true;
+      }
+      continue;
+    }
+    if (value.includes(phrase)) return true;
+  }
+  return false;
 }
 
 function extractMerchantFromText(input: string): string | null {
@@ -1300,6 +1658,13 @@ type AuthResolution = {
   user: { id: string } | null;
   strategy: string | null;
   error: string | null;
+  attempts: AuthAttempt[];
+};
+
+type AuthAttempt = {
+  strategy: string;
+  ok: boolean;
+  detail: string;
 };
 
 async function validateUserFromBearerToken(opts: {
@@ -1310,16 +1675,22 @@ async function validateUserFromBearerToken(opts: {
 }): Promise<AuthResolution> {
   const { supabaseUrl, supabaseAnonKey, adminClient, bearerToken } = opts;
   const errors: string[] = [];
+  const attempts: AuthAttempt[] = [];
 
   // Strategy 1: validate via service-role client.
   try {
     const { data, error } = await adminClient.auth.getUser(bearerToken);
     if (!error && data.user?.id) {
-      return { user: { id: data.user.id }, strategy: "adminClient.auth.getUser", error: null };
+      attempts.push({ strategy: PRIMARY_AUTH_STRATEGY, ok: true, detail: "user resolved" });
+      return { user: { id: data.user.id }, strategy: PRIMARY_AUTH_STRATEGY, error: null, attempts };
     }
-    if (error?.message) errors.push(`adminClient: ${error.message}`);
+    const detail = error?.message ? `adminClient: ${error.message}` : "adminClient: user not found";
+    errors.push(detail);
+    attempts.push({ strategy: PRIMARY_AUTH_STRATEGY, ok: false, detail });
   } catch (error) {
-    errors.push(`adminClient: ${String(error)}`);
+    const detail = `adminClient: ${String(error)}`;
+    errors.push(detail);
+    attempts.push({ strategy: PRIMARY_AUTH_STRATEGY, ok: false, detail });
   }
 
   // Strategy 2: validate via anon client.
@@ -1327,15 +1698,22 @@ async function validateUserFromBearerToken(opts: {
     const anonClient = createClient(supabaseUrl, supabaseAnonKey);
     const { data, error } = await anonClient.auth.getUser(bearerToken);
     if (!error && data.user?.id) {
-      return { user: { id: data.user.id }, strategy: "anonClient.auth.getUser", error: null };
+      const strategy = "anonClient.auth.getUser";
+      attempts.push({ strategy, ok: true, detail: "user resolved" });
+      return { user: { id: data.user.id }, strategy, error: null, attempts };
     }
-    if (error?.message) errors.push(`anonClient: ${error.message}`);
+    const detail = error?.message ? `anonClient: ${error.message}` : "anonClient: user not found";
+    errors.push(detail);
+    attempts.push({ strategy: "anonClient.auth.getUser", ok: false, detail });
   } catch (error) {
-    errors.push(`anonClient: ${String(error)}`);
+    const detail = `anonClient: ${String(error)}`;
+    errors.push(detail);
+    attempts.push({ strategy: "anonClient.auth.getUser", ok: false, detail });
   }
 
   // Strategy 3: direct REST call to Auth API.
   try {
+    const strategy = "fetch /auth/v1/user";
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
       method: "GET",
       headers: {
@@ -1346,64 +1724,34 @@ async function validateUserFromBearerToken(opts: {
     if (response.ok) {
       const payload = await response.json() as { id?: string };
       if (payload?.id) {
-        return { user: { id: payload.id }, strategy: "fetch /auth/v1/user", error: null };
+        attempts.push({ strategy, ok: true, detail: "user resolved" });
+        return { user: { id: payload.id }, strategy, error: null, attempts };
       }
-      errors.push("auth REST: user payload missing id");
+      const detail = "auth REST: user payload missing id";
+      errors.push(detail);
+      attempts.push({ strategy, ok: false, detail });
     } else {
       const body = await response.text();
-      errors.push(`auth REST ${response.status}: ${body || "Unauthorized"}`);
+      const detail = `auth REST ${response.status}: ${body || "Unauthorized"}`;
+      errors.push(detail);
+      attempts.push({ strategy, ok: false, detail });
     }
   } catch (error) {
-    errors.push(`auth REST: ${String(error)}`);
+    const detail = `auth REST: ${String(error)}`;
+    errors.push(detail);
+    attempts.push({ strategy: "fetch /auth/v1/user", ok: false, detail });
   }
 
   return {
     user: null,
     strategy: null,
     error: errors[0] ?? "Unauthorized",
+    attempts,
   };
 }
 
-function summarizeJwtForLogs(token: string): Record<string, string> {
-  const payload = decodeJwtPayload(token);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const exp = typeof payload?.exp === "number" ? payload.exp : null;
-  const sub = typeof payload?.sub === "string" ? payload.sub : "";
-  const iss = typeof payload?.iss === "string" ? payload.iss : "<none>";
-  const audValue = payload?.aud;
-  const aud = typeof audValue === "string" ? audValue : Array.isArray(audValue) ? audValue.join(",") : "<none>";
-  const role = typeof payload?.role === "string" ? payload.role : "<none>";
-  const ref = extractProjectRefFromIssuer(iss);
-  return {
-    iss,
-    ref,
-    aud,
-    role,
-    subTail: sub ? sub.slice(-8) : "<none>",
-    exp: exp ? String(exp) : "<none>",
-    expiresInSec: exp ? String(exp - nowSec) : "<none>",
-    tokenChars: String(token.length),
-  };
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  const raw = parts[1]
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-  const padded = raw + "=".repeat((4 - (raw.length % 4)) % 4);
-  try {
-    const decoded = atob(padded);
-    return JSON.parse(decoded) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function extractProjectRefFromIssuer(iss: string): string {
-  const match = iss.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i);
-  return match?.[1] ?? "<none>";
+function summarizeAuthAttempts(attempts: AuthAttempt[]): string[] {
+  return attempts.map((attempt) => `${attempt.strategy}:${attempt.ok ? "ok" : "failed"}`);
 }
 
 function json(body: ParseExpenseResponse, status: number) {

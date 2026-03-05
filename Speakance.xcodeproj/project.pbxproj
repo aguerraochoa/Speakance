@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -48,7 +48,7 @@
 		153080CE1B87361232323530 /* AuthGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthGateView.swift; sourceTree = "<group>"; };
 		15DB85A1CAAAE4B9BEB55875 /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
 		1EA951DC9F1FDA14D8D6482D /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
-		25A5FB625ED4E88080D9FA7D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		25A5FB625ED4E88080D9FA7D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4380ACA3401E5E480E6D9731 /* QueueStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStore.swift; sourceTree = "<group>"; };
 		47FA89F83262E9488AB5C7E8 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		5E9FD029AB3F03E0B43C549D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -57,7 +57,7 @@
 		A883B83983D7AF55919C3721 /* VisualComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualComponents.swift; sourceTree = "<group>"; };
 		AA7789CDF56BAC17C02E8291 /* SpeakanceTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SpeakanceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB9E45F15A7D01A547979B7A /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
-		B386C21D30D4DB8C2CF38A63 /* Speakance.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Speakance.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B386C21D30D4DB8C2CF38A63 /* Speakance.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Speakance.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B6EDEC488366115585F460A5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BA68E7008CE38379138FF067 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BD8CA8A3F0C2861086DED5B8 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
@@ -68,6 +68,7 @@
 		CA616891FE3E81D13460854C /* ExpenseReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseReviewView.swift; sourceTree = "<group>"; };
 		DA1344C7F3CCF3C406BD4689 /* SpeakanceCriticalFlowsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakanceCriticalFlowsTests.swift; sourceTree = "<group>"; };
 		DD91BE4A2AAC9B2B514025C0 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		EC0D0F60DFB6434B4913FAE4 /* AppConfig.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppConfig.xcconfig; sourceTree = "<group>"; };
 		F4A43EFB7516BA8E5241A43E /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		FB902AEEDACA77A6AE867A52 /* ExpenseModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -109,6 +110,14 @@
 				BA68E7008CE38379138FF067 /* SettingsView.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		32CA3C06DAFB2852CD56FD1D /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				EC0D0F60DFB6434B4913FAE4 /* AppConfig.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		3E5F9DEC3804268DAB1A75B9 /* App */ = {
@@ -166,6 +175,7 @@
 			children = (
 				B6EDEC488366115585F460A5 /* Assets.xcassets */,
 				25A5FB625ED4E88080D9FA7D /* PrivacyInfo.xcprivacy */,
+				32CA3C06DAFB2852CD56FD1D /* Config */,
 				CF40F87A3BB42B84E61AC66C /* Sources */,
 				C4964E1C997922C2227B8FCC /* Tests */,
 				612C203C98FF4B1B2015F1AB /* Products */,
@@ -296,6 +306,11 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					045397DCA043AE3C7DC60E9B = {
+						DevelopmentTeam = 5LCHUR9CDA;
+					};
+				};
 			};
 			buildConfigurationList = BE06E25BA1AED145CB918A7D /* Build configuration list for PBXProject "Speakance" */;
 			compatibilityVersion = "Xcode 14.0";
@@ -307,6 +322,7 @@
 			);
 			mainGroup = 978EF5692D8ECC05B0D0A637;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -424,7 +440,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.speakance;
+				PRODUCT_BUNDLE_IDENTIFIER = com.andresguerra.speakance;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -488,7 +504,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.speakance;
+				PRODUCT_BUNDLE_IDENTIFIER = com.andresguerra.speakance;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -499,6 +515,7 @@
 		};
 		6BC03FFA4C92ADEAA75CC6F0 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = EC0D0F60DFB6434B4913FAE4 /* AppConfig.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -509,7 +526,9 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speakance may use speech recognition to transcribe your expense recordings.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIRequiredDeviceCapabilities = arm64;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = (
+					arm64,
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -537,6 +556,7 @@
 		};
 		9B925C6840AE241AB1ADAAE9 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = EC0D0F60DFB6434B4913FAE4 /* AppConfig.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -547,7 +567,9 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Speakance may use speech recognition to transcribe your expense recordings.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIRequiredDeviceCapabilities = arm64;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = (
+					arm64,
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

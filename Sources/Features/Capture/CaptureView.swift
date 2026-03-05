@@ -29,7 +29,7 @@ struct CaptureView: View {
                 }
                 .padding(.horizontal, layout.horizontalPadding)
                 .padding(.top, max(12, proxy.safeAreaInsets.top > 0 ? 6 : 14))
-                .padding(.bottom, max(20, proxy.safeAreaInsets.bottom + 8))
+                .padding(.bottom, max(8, proxy.safeAreaInsets.bottom + 2))
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: max(0, proxy.size.height - 8), alignment: .top)
             }

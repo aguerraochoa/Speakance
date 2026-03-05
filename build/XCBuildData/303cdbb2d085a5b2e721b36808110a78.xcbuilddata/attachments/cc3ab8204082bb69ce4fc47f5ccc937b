@@ -1,0 +1,18 @@
+{
+  "" : {
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceTests-master.dia",
+    "emit-module-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceTests-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceTests-master-emit-module.dia",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceTests-master.swiftdeps"
+  },
+  "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/Tests/SpeakanceCriticalFlowsTests.swift" : {
+    "const-values" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.swiftconstvalues",
+    "dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.d",
+    "diagnostics" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.dia",
+    "index-unit-output-path" : "/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.o",
+    "llvm-bc" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.bc",
+    "object" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.o",
+    "swift-dependencies" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests.swiftdeps",
+    "swiftmodule" : "/Users/andresguerra/Documents/Non-Work/Apps/Speakance/build/Speakance.build/Debug-iphoneos/SpeakanceTests.build/Objects-normal/arm64/SpeakanceCriticalFlowsTests~partial.swiftmodule"
+  }
+}

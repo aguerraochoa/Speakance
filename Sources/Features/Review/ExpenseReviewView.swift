@@ -45,9 +45,10 @@ struct ExpenseReviewView: View {
                 }
                 Spacer()
                 if let confidence = context.draft.parseConfidence {
+                    let clampedConfidence = min(max(confidence, 0), 1)
                     StatusPill(
-                        text: "\(Int(confidence * 100))%",
-                        color: confidence > 0.9 ? AppTheme.success : AppTheme.warning
+                        text: "\(Int((clampedConfidence * 100).rounded()))%",
+                        color: clampedConfidence > 0.9 ? AppTheme.success : AppTheme.warning
                     )
                 }
             }

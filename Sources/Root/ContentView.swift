@@ -33,6 +33,8 @@ struct ContentView: View {
         }
         .task {
             await authStore.validateSessionWithServerIfNeeded()
+            await store.synchronizePersistenceScopeWithAuthIfNeeded()
+            await store.performInitialCloudSyncIfNeeded()
             store.beginInteractiveTutorialIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -45,11 +47,8 @@ struct ContentView: View {
             guard nowSignedIn && !wasSignedIn else { return }
             store.selectedTab = .capture
         }
-        .task(id: authStore.currentAccessToken) {
-            if case .signedIn = authStore.state, authStore.currentAccessToken != nil {
-                await store.refreshCloudStateFromServer()
-                await store.syncQueueIfPossible()
-            }
+        .task(id: authStore.currentUserID) {
+            await store.synchronizePersistenceScopeWithAuthIfNeeded()
         }
         .task(id: authStore.cloudMutationPermission) {
             if authStore.cloudMutationPermission == .allowed {
@@ -147,8 +146,12 @@ private struct OnboardingShowcaseView: View {
                 .font(.system(size: 30, weight: .black, design: .rounded))
                 .foregroundStyle(AppTheme.ink)
             Spacer()
-            Button("Skip") {
+            Button {
                 store.skipTutorial()
+            } label: {
+                Text("Skip")
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .font(.system(size: 16, weight: .bold, design: .rounded))
             .foregroundStyle(AppTheme.faintText)
@@ -481,27 +484,32 @@ private struct OnboardingShowcaseView: View {
             }
 
             HStack(spacing: 10) {
-                Button("Back") {
+                Button {
                     store.backTutorial()
+                } label: {
+                    Text("Back")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.faintText)
+                        .frame(width: 92)
+                        .frame(minHeight: 44)
+                        .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(uiColor: .separator).opacity(0.22), lineWidth: 1))
+                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(AppTheme.faintText)
-                .frame(width: 92)
-                .padding(.vertical, 12)
-                .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(uiColor: .separator).opacity(0.22), lineWidth: 1))
                 .disabled(!canGoBack)
                 .opacity(canGoBack ? 1 : 0.55)
 
-                Button(step.primaryButtonTitle) {
+                Button {
                     if step == .done { store.completeTutorial() }
                     else { store.advanceTutorial() }
+                } label: {
+                    Text(step.primaryButtonTitle)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
         .padding(.horizontal, 16)

@@ -101,6 +101,23 @@ final class AuthStore: ObservableObject {
         return nil
     }
 
+    var currentUserID: String? {
+        if case let .signedIn(session) = state {
+            return session.userId
+        }
+        return nil
+    }
+
+    var persistenceScopeUserID: String? {
+        if case let .signedIn(session) = state {
+            return session.userId
+        }
+        if case .loading = state {
+            return sessionStorage.load()?.userId
+        }
+        return nil
+    }
+
     var cloudMutationPermission: CloudMutationPermission {
         guard isConfigured else { return .authRequired }
         switch state {
@@ -808,7 +825,39 @@ final class SharedAccessTokenStore: @unchecked Sendable {
 struct SupabaseAuthRESTClient {
     let config: SupabaseAppConfig
     var session: URLSession = .shared
-    private let webAuthBaseURLString = "https://speakance.vercel.app"
+    private static let clientInfoHeaderValue = "supabase-swift/1.0"
+
+    private static let fallbackWebAuthScheme = "https"
+
+    private func webAuthBaseHost() -> String? {
+        (Bundle.main.object(forInfoDictionaryKey: "WEB_AUTH_BASE_HOST") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func webAuthBaseHostToURLString(_ host: String) -> String {
+        if let url = URL(string: host.trimmingCharacters(in: .whitespacesAndNewlines)),
+           url.host != nil {
+            return host
+        }
+        return "\(Self.fallbackWebAuthScheme)://\(host)"
+    }
+
+    private var webAuthBaseURLString: String {
+        if let configured = Bundle.main.object(forInfoDictionaryKey: "WEB_AUTH_BASE_URL") as? String {
+            let trimmed = configured.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: trimmed),
+               let host = url.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !trimmed.isEmpty,
+               !host.isEmpty {
+                return trimmed
+            }
+        }
+        if let host = webAuthBaseHost()?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !host.isEmpty {
+            return webAuthBaseHostToURLString(host)
+        }
+        return "https://speakance.app"
+    }
 
     func signIn(email: String, password: String) async throws -> UserSession {
         let url = try authURL(path: "token", queryItems: [URLQueryItem(name: "grant_type", value: "password")])
@@ -935,6 +984,7 @@ struct SupabaseAuthRESTClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(config.anonKey)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.clientInfoHeaderValue, forHTTPHeaderField: "x-client-info")
         return request
     }
 
@@ -952,11 +1002,18 @@ struct SupabaseAuthRESTClient {
         guard (200..<300).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(SupabaseAuthErrorResponse.self, from: data).resolvedMessage) ??
                 (String(data: data, encoding: .utf8) ?? "Auth request failed")
+            #if DEBUG
+            print("[Speakance][Auth] HTTP \(http.statusCode) \(requestPath(response: http)) body=\(message)")
+            #endif
             if http.statusCode == 401 || http.statusCode == 403 {
                 throw AuthError.unauthorized(message)
             }
             throw AuthError.requestFailed(message)
         }
+    }
+
+    private func requestPath(response: HTTPURLResponse) -> String {
+        response.url?.path.isEmpty == false ? (response.url?.path ?? "<unknown>") : "<unknown>"
     }
 }
 

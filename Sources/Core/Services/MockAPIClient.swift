@@ -40,9 +40,14 @@ struct UserMetadataSyncSnapshotDTO {
     var categories: [CategoryDefinition]
     var trips: [TripRecord]
     var paymentMethods: [PaymentMethod]
+    var deletedCategoryIDs: [UUID]
+    var deletedTripIDs: [UUID]
+    var deletedPaymentMethodIDs: [UUID]
     var activeTripID: UUID?
     var defaultCurrencyCode: String?
+    var parsingLanguage: String?
     var dailyVoiceLimit: Int?
+    var profileUpdatedAt: Date?
 }
 
 struct MockExpenseAPIClient: ExpenseAPIClientProtocol {

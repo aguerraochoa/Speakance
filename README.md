@@ -44,9 +44,14 @@ Speakance is an iOS-first expense tracker focused on low-friction capture and cl
 ## Local Setup
 
 1. Read `docs/setup-checklist.md`.
-2. Generate the Xcode project from `project.yml` (XcodeGen).
-3. Open `Speakance.xcodeproj` in Xcode.
-4. Build/run the `Speakance` scheme on iOS Simulator (or device).
+2. Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` and set your Supabase values.
+   - `SUPABASE_URL`: your project URL
+   - `SUPABASE_ANON_KEY`: your Supabase anonymous key
+   - `WEB_AUTH_BASE_URL`: default web auth domain for email links (defaults to `https://speakance.app`)
+3. `Config/Local.xcconfig` is intentionally gitignored; only `Config/Local.xcconfig.example` is safe to commit.
+4. Generate the Xcode project from `project.yml` (XcodeGen).
+5. Open `Speakance.xcodeproj` in Xcode.
+6. Build/run the `Speakance` scheme on iOS Simulator (or device).
 
 ## Backend Setup (Optional For Cloud Sync)
 
